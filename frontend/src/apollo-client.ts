@@ -3,11 +3,21 @@ import { GraphQLWsLink } from '@apollo/client/link/subscriptions';
 import { createClient } from 'graphql-ws';
 import { getMainDefinition } from '@apollo/client/utilities';
 
-const httpLink = new HttpLink({ uri: 'http://localhost:4000/graphql' });
+// In Docker: Nginx proxies /graphql to the backend — no hardcoded host needed.
+// In dev: Vite proxy or direct localhost:4000.
+const httpUri =
+  import.meta.env.VITE_API_URL
+    ? `${import.meta.env.VITE_API_URL}/graphql`
+    : '/graphql';
 
-const wsLink = new GraphQLWsLink(
-  createClient({ url: 'ws://localhost:4000/graphql' })
-);
+const wsUri =
+  import.meta.env.VITE_WS_URL
+    ? `${import.meta.env.VITE_WS_URL}/graphql`
+    : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/graphql`;
+
+const httpLink = new HttpLink({ uri: httpUri });
+
+const wsLink = new GraphQLWsLink(createClient({ url: wsUri }));
 
 const splitLink = split(
   ({ query }) => {

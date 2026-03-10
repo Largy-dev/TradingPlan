@@ -45,7 +45,7 @@ async function main() {
 
   app.use(
     '/graphql',
-    cors<cors.CorsRequest>({ origin: 'http://localhost:5173', credentials: true }),
+    cors<cors.CorsRequest>({ origin: process.env.CORS_ORIGIN ?? true, credentials: true }),
     bodyParser.json(),
     expressMiddleware(apolloServer),
   );
