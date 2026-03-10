@@ -3,4 +3,3 @@ dist/
 *.db
 *.db-journal
 .env
-prisma/migrations/
