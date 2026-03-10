@@ -187,38 +187,35 @@ export class BotService {
     exitPrice: number,
     reason: string,
   ): Promise<void> {
-    if (!this.binanceService) return;
-    try {
-      const order = trade.positionSide === 'LONG'
-        ? await this.binanceService.closeLong(trade.symbol, trade.quantity)
-        : await this.binanceService.closeShort(trade.symbol, trade.quantity);
+    if (!this.binanceService) throw new Error('BinanceService not initialized');
 
-      const actualExit = order.price || exitPrice;
-      const isLong = trade.positionSide === 'LONG';
-      const pnlPct = isLong
-        ? ((actualExit - trade.entryPrice) / trade.entryPrice) * 100 * trade.leverage
-        : ((trade.entryPrice - actualExit) / trade.entryPrice) * 100 * trade.leverage;
-      const pnl = (trade.quantity * trade.entryPrice * (pnlPct / 100)) / trade.leverage;
+    const order = trade.positionSide === 'LONG'
+      ? await this.binanceService.closeLong(trade.symbol, trade.quantity)
+      : await this.binanceService.closeShort(trade.symbol, trade.quantity);
 
-      const updated = await this.prisma.trade.update({
-        where: { id: trade.id },
-        data: {
-          exitPrice: actualExit,
-          pnl,
-          pnlPercent: pnlPct,
-          status: 'CLOSED',
-          exitOrderId: order.orderId,
-          closedAt: new Date(),
-        },
-      });
+    const actualExit = order.price || exitPrice;
+    const isLong = trade.positionSide === 'LONG';
+    const pnlPct = isLong
+      ? ((actualExit - trade.entryPrice) / trade.entryPrice) * 100 * trade.leverage
+      : ((trade.entryPrice - actualExit) / trade.entryPrice) * 100 * trade.leverage;
+    const pnl = (trade.quantity * trade.entryPrice * (pnlPct / 100)) / trade.leverage;
 
-      this.trailingHighs.delete(trade.id);
-      this.trailingLows.delete(trade.id);
-      console.log(`[BotService] CLOSE ${trade.positionSide} ${trade.symbol} (${reason}) PnL: ${pnl.toFixed(2)} USDT (${pnlPct.toFixed(2)}%)`);
-      pubsub.publish(NEW_TRADE, { newTrade: this.serializeTrade(updated) });
-    } catch (err) {
-      console.error(`[BotService] Close position error ${trade.symbol}:`, err);
-    }
+    const updated = await this.prisma.trade.update({
+      where: { id: trade.id },
+      data: {
+        exitPrice: actualExit,
+        pnl,
+        pnlPercent: pnlPct,
+        status: 'CLOSED',
+        exitOrderId: order.orderId,
+        closedAt: new Date(),
+      },
+    });
+
+    this.trailingHighs.delete(trade.id);
+    this.trailingLows.delete(trade.id);
+    console.log(`[BotService] CLOSE ${trade.positionSide} ${trade.symbol} (${reason}) PnL: ${pnl.toFixed(2)} USDT (${pnlPct.toFixed(2)}%)`);
+    pubsub.publish(NEW_TRADE, { newTrade: this.serializeTrade(updated) });
   }
 
   async openManualTrade(symbol: string, quoteQty: number, positionSide: 'LONG' | 'SHORT'): Promise<any> {

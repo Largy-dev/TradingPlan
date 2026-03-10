@@ -30,9 +30,9 @@ export function ManualTradeCard({ openTrades }: Props) {
   const [closeTrade, { loading: closeLoading }] = useMutation(CLOSE_MANUAL_TRADE, {
     ...refetch,
     onCompleted: (d) => {
-      const pnl = d.closeManualTrade.pnl?.toFixed(2);
-      const pct = d.closeManualTrade.pnlPercent?.toFixed(2);
-      showFeedback(`Trade fermé — PnL: ${pnl >= 0 ? '+' : ''}${pnl} USDT (${pct}%)`, parseFloat(pnl) >= 0);
+      const pnl = d.closeManualTrade.pnl ?? 0;
+      const pct = d.closeManualTrade.pnlPercent ?? 0;
+      showFeedback(`Trade fermé — PnL: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT (${pct.toFixed(2)}%)`, pnl >= 0);
     },
     onError: (e) => showFeedback(e.message, false),
   });
