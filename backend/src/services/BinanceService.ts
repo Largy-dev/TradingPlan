@@ -41,9 +41,25 @@ export class BinanceService implements IBinanceService {
   async testConnection(): Promise<boolean> {
     try {
       await this.http.get('/fapi/v1/ping');
+      await this.enableHedgeMode();
       return true;
     } catch {
       return false;
+    }
+  }
+
+  // Active le Hedge Mode (positions LONG et SHORT simultanées)
+  // Binance renvoie -4059 si déjà activé — on ignore cette erreur
+  private async enableHedgeMode(): Promise<void> {
+    try {
+      await this.http.post('/fapi/v1/positionSide/dual', null, {
+        params: this.signedParams({ dualSidePosition: 'true' }),
+      });
+    } catch (err: any) {
+      const code = err?.response?.data?.code;
+      if (code !== -4059) {
+        console.warn('[BinanceService] enableHedgeMode warning:', err?.response?.data?.msg ?? err.message);
+      }
     }
   }
 
