@@ -1,0 +1,57 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Config {
+  id                 Int      @id @default(autoincrement())
+  apiKeyEncrypted    String
+  secretKeyEncrypted String
+  testnet            Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model BotState {
+  id              Int      @id @default(autoincrement())
+  isRunning       Boolean  @default(false)
+  strategy        String   @default("EMA_RSI_VOLUME")
+  riskPercent     Float    @default(2.0)
+  takeProfitPct   Float    @default(3.0)
+  stopLossPct     Float    @default(1.5)
+  trailingStopPct Float    @default(1.0)
+  maxOpenTrades   Int      @default(5)
+  leverage        Int      @default(10)
+  autoSelectPairs Boolean  @default(true)
+  updatedAt       DateTime @updatedAt
+}
+
+model TradingPair {
+  id        Int      @id @default(autoincrement())
+  symbol    String   @unique
+  isActive  Boolean  @default(true)
+  isManual  Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Trade {
+  id            Int       @id @default(autoincrement())
+  symbol        String
+  side          String
+  positionSide  String    @default("LONG")
+  quantity      Float
+  entryPrice    Float
+  exitPrice     Float?
+  pnl           Float?
+  pnlPercent    Float?
+  leverage      Int       @default(10)
+  status        String    @default("OPEN")
+  orderId       String?
+  exitOrderId   String?
+  openedAt      DateTime  @default(now())
+  closedAt      DateTime?
+}
