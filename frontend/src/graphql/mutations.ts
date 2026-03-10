@@ -45,3 +45,19 @@ export const REFRESH_AUTO_PAIRS = gql`
     refreshAutoPairs { id symbol isActive isManual createdAt }
   }
 `;
+
+export const OPEN_MANUAL_TRADE = gql`
+  mutation OpenManualTrade($symbol: String!, $quoteQty: Float!, $positionSide: String!) {
+    openManualTrade(symbol: $symbol, quoteQty: $quoteQty, positionSide: $positionSide) {
+      id symbol positionSide quantity entryPrice leverage status openedAt
+    }
+  }
+`;
+
+export const CLOSE_MANUAL_TRADE = gql`
+  mutation CloseManualTrade($tradeId: ID!) {
+    closeManualTrade(tradeId: $tradeId) {
+      id symbol positionSide pnl pnlPercent status closedAt
+    }
+  }
+`;

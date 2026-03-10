@@ -221,6 +221,53 @@ export class BotService {
     }
   }
 
+  async openManualTrade(symbol: string, quoteQty: number, positionSide: 'LONG' | 'SHORT'): Promise<any> {
+    const ok = await this.initializeBinanceService();
+    if (!ok) throw new Error('Cannot connect to Binance. Check your API keys.');
+
+    const state = await this.prisma.botState.findFirst();
+    const leverage = state?.leverage ?? 10;
+
+    const order = positionSide === 'LONG'
+      ? await this.binanceService!.openLong(symbol, quoteQty, leverage)
+      : await this.binanceService!.openShort(symbol, quoteQty, leverage);
+
+    const trade = await this.prisma.trade.create({
+      data: {
+        symbol,
+        side: positionSide === 'LONG' ? 'BUY' : 'SELL',
+        positionSide,
+        quantity: order.quantity,
+        entryPrice: order.price,
+        leverage,
+        status: 'OPEN',
+        orderId: order.orderId,
+      },
+    });
+
+    console.log(`[BotService] MANUAL ${positionSide} ${symbol} @ ${order.price} x${leverage} qty:${order.quantity}`);
+    pubsub.publish(NEW_TRADE, { newTrade: this.serializeTrade(trade) });
+    return this.serializeTrade(trade);
+  }
+
+  async closeManualTrade(tradeId: number): Promise<any> {
+    const ok = await this.initializeBinanceService();
+    if (!ok) throw new Error('Cannot connect to Binance. Check your API keys.');
+
+    const trade = await this.prisma.trade.findUnique({ where: { id: tradeId } });
+    if (!trade || trade.status !== 'OPEN') throw new Error('Trade not found or already closed.');
+
+    const currentPrice = await this.binanceService!.getCurrentPrice(trade.symbol);
+    await this.closePosition(
+      { id: trade.id, symbol: trade.symbol, positionSide: trade.positionSide, entryPrice: trade.entryPrice, quantity: trade.quantity, leverage: trade.leverage },
+      currentPrice,
+      'MANUAL',
+    );
+
+    const updated = await this.prisma.trade.findUnique({ where: { id: tradeId } });
+    return this.serializeTrade(updated);
+  }
+
   private async getActivePairs(state: { autoSelectPairs: boolean }): Promise<string[]> {
     if (!this.binanceService) return [];
 

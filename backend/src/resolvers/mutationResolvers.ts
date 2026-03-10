@@ -65,4 +65,15 @@ export const buildMutationResolvers = (prisma: PrismaClient, botService: BotServ
     const pairs = await prisma.tradingPair.findMany({ where: { isActive: true } });
     return pairs.map((p) => ({ ...p, createdAt: p.createdAt.toISOString() }));
   },
+
+  openManualTrade: async (
+    _: unknown,
+    { symbol, quoteQty, positionSide }: { symbol: string; quoteQty: number; positionSide: string },
+  ) => {
+    return botService.openManualTrade(symbol.toUpperCase(), quoteQty, positionSide as 'LONG' | 'SHORT');
+  },
+
+  closeManualTrade: async (_: unknown, { tradeId }: { tradeId: string }) => {
+    return botService.closeManualTrade(parseInt(tradeId));
+  },
 });

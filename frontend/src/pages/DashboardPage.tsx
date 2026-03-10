@@ -6,6 +6,7 @@ import { StatsGrid } from '../components/Dashboard/StatsGrid';
 import { PnlChart } from '../components/Dashboard/PnlChart';
 import { OpenTradesTable } from '../components/Dashboard/OpenTradesTable';
 import { RecentTradesTable } from '../components/Dashboard/RecentTradesTable';
+import { ManualTradeCard } from '../components/Dashboard/ManualTradeCard';
 import { IBotStatus } from '../interfaces/IBotStatus';
 import { ITrade } from '../interfaces/ITrade';
 
@@ -68,7 +69,10 @@ export function DashboardPage() {
             loading={startLoading || stopLoading}
           />
           <StatsGrid status={status} />
-          <PnlChart trades={trades} />
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+            <div className="xl:col-span-2"><PnlChart trades={trades} /></div>
+            <ManualTradeCard openTrades={openTrades} />
+          </div>
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
             <OpenTradesTable trades={openTrades} />
             <RecentTradesTable trades={closedTrades} />
