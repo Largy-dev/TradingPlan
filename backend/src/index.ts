@@ -43,6 +43,8 @@ async function main() {
 
   await apolloServer.start();
 
+  app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
   app.use(
     '/graphql',
     cors<cors.CorsRequest>({ origin: process.env.CORS_ORIGIN ?? true, credentials: true }),
