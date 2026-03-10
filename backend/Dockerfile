@@ -18,11 +18,11 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install only production deps (includes prisma CLI for migrate)
+# Install all deps (prisma CLI needed for migrate deploy)
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci
 
-# Copy generated prisma client and compiled output
+# Copy generated prisma client and compiled output from builder
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/dist ./dist
 COPY prisma ./prisma
