@@ -38,6 +38,7 @@ export class BotService {
   private strategyService: StrategyService | null = null;
   private streamService: BinanceStreamService | null = null;
   private maintenanceCron: cron.ScheduledTask | null = null;
+  private entryCron: cron.ScheduledTask | null = null;
   private testnet = true;
 
   // Runtime state (in-memory caches to avoid DB hits on every tick)
@@ -90,14 +91,18 @@ export class BotService {
     await this.rebuildOpenTradesCache();
     await this.resyncSubscriptions();
 
+    // Entry signals: scan all active pairs every minute
+    this.entryCron = cron.schedule('* * * * *', () => this.runEntryScan());
     // Maintenance: refresh pairs + resync streams every 5 minutes
     this.maintenanceCron = cron.schedule('*/5 * * * *', () => this.runMaintenance());
 
-    console.log('[BotService] Started — WebSocket real-time monitoring active');
+    console.log('[BotService] Started — WebSocket TP/SL + 1-min entry scan active');
     await this.publishStatus();
   }
 
   async stop(): Promise<void> {
+    this.entryCron?.stop();
+    this.entryCron = null;
     this.maintenanceCron?.stop();
     this.maintenanceCron = null;
     this.streamService?.unsubscribe();
@@ -167,28 +172,11 @@ export class BotService {
     }
   }
 
-  private handleKlineClose(data: IKlineUpdate): void {
-    if (!data.isClosed || !this.isRunning || !this.botStateCache || !this.strategyService) return;
-    if (this.openTradesCache.size >= this.botStateCache.maxOpenTrades) return;
-
-    const symbol = data.symbol;
-    const now = Date.now();
-    const openKeys = new Set(
-      Array.from(this.openTradesCache.values()).map((t) => `${t.symbol}_${t.positionSide}`),
-    );
-    const longCooling = (now - (this.recentlyClosed.get(`${symbol}_LONG`) ?? 0)) < this.COOLDOWN_MS;
-    const shortCooling = (now - (this.recentlyClosed.get(`${symbol}_SHORT`) ?? 0)) < this.COOLDOWN_MS;
-    const state = this.botStateCache;
-
-    this.strategyService.analyzeSymbol(symbol)
-      .then(async (signal) => {
-        if (signal.action === 'LONG' && !openKeys.has(`${symbol}_LONG`) && !longCooling) {
-          await this.openPosition(symbol, 'LONG', state);
-        } else if (signal.action === 'SHORT' && !openKeys.has(`${symbol}_SHORT`) && !shortCooling) {
-          await this.openPosition(symbol, 'SHORT', state);
-        }
-      })
-      .catch((err) => console.error(`[BotService] Kline entry error ${symbol}:`, err));
+  // Kline close events from WebSocket are informational only.
+  // Entry scanning is handled by the 1-minute cron (runEntryScan).
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private handleKlineClose(_data: IKlineUpdate): void {
+    // no-op: entries are handled by runEntryScan()
   }
 
   // ---------------------------------------------------------------------------
@@ -249,6 +237,51 @@ export class BotService {
       await this.publishStatus();
     } catch (err) {
       console.error('[BotService] Maintenance error:', err);
+    }
+  }
+
+  /**
+   * Run every minute: check entry signals on all active pairs.
+   * WebSocket handles exits (TP/SL/trailing) in real-time.
+   * EMA/RSI/MACD are computed on closed candles → signal is stable between closes,
+   * so scanning every minute is equivalent to scanning at candle close.
+   */
+  private async runEntryScan(): Promise<void> {
+    try {
+      if (!this.isRunning || !this.strategyService || !this.botStateCache) return;
+      if (this.openTradesCache.size >= this.botStateCache.maxOpenTrades) return;
+
+      const state = this.botStateCache;
+      const symbols = await this.getSubscriptionSymbols();
+      const now = Date.now();
+
+      for (const symbol of symbols) {
+        if (!this.isRunning) break;
+        if (this.openTradesCache.size >= state.maxOpenTrades) break;
+
+        const openKeys = new Set(
+          Array.from(this.openTradesCache.values()).map((t) => `${t.symbol}_${t.positionSide}`),
+        );
+        const longCooling = (now - (this.recentlyClosed.get(`${symbol}_LONG`) ?? 0)) < this.COOLDOWN_MS;
+        const shortCooling = (now - (this.recentlyClosed.get(`${symbol}_SHORT`) ?? 0)) < this.COOLDOWN_MS;
+
+        if (openKeys.has(`${symbol}_LONG`) && openKeys.has(`${symbol}_SHORT`)) continue;
+
+        try {
+          const signal = await this.strategyService.analyzeSymbol(symbol);
+          if (signal.action === 'LONG' && !openKeys.has(`${symbol}_LONG`) && !longCooling) {
+            await this.openPosition(symbol, 'LONG', state);
+          } else if (signal.action === 'SHORT' && !openKeys.has(`${symbol}_SHORT`) && !shortCooling) {
+            await this.openPosition(symbol, 'SHORT', state);
+          }
+        } catch (err) {
+          console.error(`[BotService] Entry scan error ${symbol}:`, err);
+        }
+      }
+
+      await this.publishStatus();
+    } catch (err) {
+      console.error('[BotService] Entry scan error:', err);
     }
   }
 
