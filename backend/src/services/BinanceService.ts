@@ -134,13 +134,7 @@ export class BinanceService implements IBinanceService {
     const quantity = parseFloat(((quoteQty * leverage) / price).toFixed(precision));
 
     const { data } = await this.http.post('/fapi/v1/order', null, {
-      params: this.signedParams({
-        symbol,
-        side: 'BUY',
-        positionSide: 'LONG',
-        type: 'MARKET',
-        quantity,
-      }),
+      params: this.signedParams({ symbol, side: 'BUY', positionSide: 'LONG', type: 'MARKET', quantity }),
     });
     return {
       orderId: String(data.orderId),
@@ -148,7 +142,7 @@ export class BinanceService implements IBinanceService {
       side: 'BUY',
       positionSide: 'LONG',
       quantity: parseFloat(data.executedQty || quantity),
-      price,
+      price: parseFloat(data.avgPrice) || price,
       status: data.status,
     };
   }
@@ -160,13 +154,7 @@ export class BinanceService implements IBinanceService {
     const quantity = parseFloat(((quoteQty * leverage) / price).toFixed(precision));
 
     const { data } = await this.http.post('/fapi/v1/order', null, {
-      params: this.signedParams({
-        symbol,
-        side: 'SELL',
-        positionSide: 'SHORT',
-        type: 'MARKET',
-        quantity,
-      }),
+      params: this.signedParams({ symbol, side: 'SELL', positionSide: 'SHORT', type: 'MARKET', quantity }),
     });
     return {
       orderId: String(data.orderId),
@@ -174,7 +162,7 @@ export class BinanceService implements IBinanceService {
       side: 'SELL',
       positionSide: 'SHORT',
       quantity: parseFloat(data.executedQty || quantity),
-      price,
+      price: parseFloat(data.avgPrice) || price,
       status: data.status,
     };
   }
@@ -183,22 +171,15 @@ export class BinanceService implements IBinanceService {
     const precision = await this.getQuantityPrecision(symbol);
     const qty = parseFloat(quantity.toFixed(precision));
     const { data } = await this.http.post('/fapi/v1/order', null, {
-      params: this.signedParams({
-        symbol,
-        side: 'SELL',
-        positionSide: 'LONG',
-        type: 'MARKET',
-        quantity: qty,
-      }),
+      params: this.signedParams({ symbol, side: 'SELL', positionSide: 'LONG', type: 'MARKET', quantity: qty }),
     });
-    const price = await this.getCurrentPrice(symbol);
     return {
       orderId: String(data.orderId),
       symbol: data.symbol,
       side: 'SELL',
       positionSide: 'LONG',
       quantity: parseFloat(data.executedQty || qty),
-      price,
+      price: parseFloat(data.avgPrice) || 0,
       status: data.status,
     };
   }
@@ -207,22 +188,15 @@ export class BinanceService implements IBinanceService {
     const precision = await this.getQuantityPrecision(symbol);
     const qty = parseFloat(quantity.toFixed(precision));
     const { data } = await this.http.post('/fapi/v1/order', null, {
-      params: this.signedParams({
-        symbol,
-        side: 'BUY',
-        positionSide: 'SHORT',
-        type: 'MARKET',
-        quantity: qty,
-      }),
+      params: this.signedParams({ symbol, side: 'BUY', positionSide: 'SHORT', type: 'MARKET', quantity: qty }),
     });
-    const price = await this.getCurrentPrice(symbol);
     return {
       orderId: String(data.orderId),
       symbol: data.symbol,
       side: 'BUY',
       positionSide: 'SHORT',
       quantity: parseFloat(data.executedQty || qty),
-      price,
+      price: parseFloat(data.avgPrice) || 0,
       status: data.status,
     };
   }

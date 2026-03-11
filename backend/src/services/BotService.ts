@@ -215,8 +215,8 @@ export class BotService {
     const actualExit = order.price || exitPrice;
     const isLong = trade.positionSide === 'LONG';
 
-    // Binance Futures taker fee (MARKET orders): 0.04% per side
-    const TAKER_FEE_RATE = 0.0004;
+    // Binance Futures taker fee (MARKET orders): 0.05% per side
+    const TAKER_FEE_RATE = 0.0005;
     const openFee  = quantity * trade.entryPrice * TAKER_FEE_RATE;
     const closeFee = quantity * actualExit       * TAKER_FEE_RATE;
     const totalFees = openFee + closeFee;
