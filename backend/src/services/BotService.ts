@@ -16,6 +16,9 @@ export class BotService {
   private strategyService: StrategyService | null = null;
   private trailingHighs = new Map<number, number>();
   private trailingLows = new Map<number, number>();
+  // Cooldown: prevents re-entering the same symbol+side immediately after a close
+  private readonly COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+  private recentlyClosed = new Map<string, number>(); // `${symbol}_${positionSide}` → timestamp
 
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -88,9 +91,15 @@ export class BotService {
 
         const signal = await this.strategyService.analyzeSymbol(pair);
 
-        if (signal.action === 'LONG' && !openSymbols.has(`${pair}_LONG`)) {
+        const longKey  = `${pair}_LONG`;
+        const shortKey = `${pair}_SHORT`;
+        const now = Date.now();
+        const longCoolingDown  = (now - (this.recentlyClosed.get(longKey)  ?? 0)) < this.COOLDOWN_MS;
+        const shortCoolingDown = (now - (this.recentlyClosed.get(shortKey) ?? 0)) < this.COOLDOWN_MS;
+
+        if (signal.action === 'LONG' && !openSymbols.has(longKey) && !longCoolingDown) {
           await this.openPosition(pair, 'LONG', state);
-        } else if (signal.action === 'SHORT' && !openSymbols.has(`${pair}_SHORT`)) {
+        } else if (signal.action === 'SHORT' && !openSymbols.has(shortKey) && !shortCoolingDown) {
           await this.openPosition(pair, 'SHORT', state);
         }
       }
@@ -234,6 +243,7 @@ export class BotService {
 
     this.trailingHighs.delete(trade.id);
     this.trailingLows.delete(trade.id);
+    this.recentlyClosed.set(`${trade.symbol}_${trade.positionSide}`, Date.now());
     console.log(`[BotService] CLOSE ${trade.positionSide} ${trade.symbol} (${reason}) PnL: ${pnl.toFixed(2)} USDT (${pnlPct.toFixed(2)}%)`);
     pubsub.publish(NEW_TRADE, { newTrade: this.serializeTrade(updated) });
   }
