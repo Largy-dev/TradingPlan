@@ -30,24 +30,26 @@ export class StrategyService implements IStrategyService {
 
     const avgVolume = volumes.slice(-21, -1).reduce((a, b) => a + b, 0) / 20;
     const currentVolume = volumes[volumes.length - 1];
-    const volumeOk = currentVolume > avgVolume * 1.2;
+    const volumeOk = currentVolume >= avgVolume * 0.8;
 
-    const crossedAbove = ema9Prev < ema21Prev && ema9 > ema21;
-    const crossedBelow = ema9Prev > ema21Prev && ema9 < ema21;
+    // Trend-following: enter as long as EMA9 is on the right side of EMA21
+    // (more aggressive than waiting for a crossover)
+    const bullish = ema9 > ema21;
+    const bearish = ema9 < ema21;
 
     let action: ISignal['action'] = 'HOLD';
     let confidence = 0;
 
-    if (crossedAbove && rsi >= 45 && rsi <= 65 && volumeOk) {
+    if (bullish && rsi >= 40 && rsi <= 75 && volumeOk) {
       action = 'LONG';
       confidence = this.computeConfidence(rsi, volumeOk);
-    } else if (crossedBelow && rsi >= 35 && rsi <= 55 && volumeOk) {
+    } else if (bearish && rsi >= 25 && rsi <= 60 && volumeOk) {
       action = 'SHORT';
       confidence = this.computeConfidence(100 - rsi, volumeOk);
-    } else if (ema9 > ema21 && rsi > 75) {
+    } else if (bullish && rsi > 80) {
       action = 'CLOSE_LONG';
       confidence = 0.8;
-    } else if (ema9 < ema21 && rsi < 25) {
+    } else if (bearish && rsi < 20) {
       action = 'CLOSE_SHORT';
       confidence = 0.8;
     }
