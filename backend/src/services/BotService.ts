@@ -189,9 +189,19 @@ export class BotService {
   ): Promise<void> {
     if (!this.binanceService) throw new Error('Binance not initialized');
 
+    // Use the actual position size from Binance to avoid 400 errors caused by quantity mismatch
+    const positions = await this.binanceService.getOpenPositions();
+    const position = positions.find(
+      (p) => p.symbol === trade.symbol && p.positionSide === trade.positionSide,
+    );
+    if (!position) {
+      throw new Error(`Position not found on Binance (${trade.symbol} ${trade.positionSide}). Use force close to clean up DB.`);
+    }
+    const quantity = Math.abs(position.positionAmt);
+
     const order = trade.positionSide === 'LONG'
-      ? await this.binanceService.closeLong(trade.symbol, trade.quantity)
-      : await this.binanceService.closeShort(trade.symbol, trade.quantity);
+      ? await this.binanceService.closeLong(trade.symbol, quantity)
+      : await this.binanceService.closeShort(trade.symbol, quantity);
 
     const actualExit = order.price || exitPrice;
     const isLong = trade.positionSide === 'LONG';
