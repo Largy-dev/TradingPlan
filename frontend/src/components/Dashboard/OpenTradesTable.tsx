@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation } from '@apollo/client';
-import { CLOSE_MANUAL_TRADE, FORCE_CLOSE_TRADE } from '../../graphql/mutations';
-import { GET_TRADES } from '../../graphql/queries';
+import { CLOSE_MANUAL_TRADE, FORCE_CLOSE_TRADE, CLOSE_ALL_TRADES } from '../../graphql/mutations';
+import { GET_TRADES, GET_BOT_STATUS } from '../../graphql/queries';
 import { ITrade } from '../../interfaces/ITrade';
 
 interface Props {
@@ -11,8 +11,9 @@ interface Props {
 export function OpenTradesTable({ trades }: Props) {
   const [failedCloseIds, setFailedCloseIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [confirmCloseAll, setConfirmCloseAll] = useState(false);
 
-  const refetch = { refetchQueries: [{ query: GET_TRADES }] };
+  const refetch = { refetchQueries: [{ query: GET_TRADES }, { query: GET_BOT_STATUS }] };
 
   const [closeTrade, { loading: closeLoading }] = useMutation(CLOSE_MANUAL_TRADE, {
     ...refetch,
@@ -35,7 +36,17 @@ export function OpenTradesTable({ trades }: Props) {
     },
   });
 
-  const loading = closeLoading || forceLoading;
+  const [closeAll, { loading: closeAllLoading }] = useMutation(CLOSE_ALL_TRADES, {
+    ...refetch,
+    onCompleted: () => setConfirmCloseAll(false),
+    onError: (e) => {
+      setError(`Close All: ${e.message}`);
+      setConfirmCloseAll(false);
+      setTimeout(() => setError(null), 6000);
+    },
+  });
+
+  const loading = closeLoading || forceLoading || closeAllLoading;
 
   if (trades.length === 0) {
     return (
@@ -48,7 +59,36 @@ export function OpenTradesTable({ trades }: Props) {
 
   return (
     <div className="bg-dark-800 rounded-xl border border-dark-600 p-6">
-      <h3 className="text-sm font-semibold text-gray-300 mb-4">Open Positions ({trades.length})</h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-gray-300">Open Positions ({trades.length})</h3>
+        {!confirmCloseAll ? (
+          <button
+            onClick={() => setConfirmCloseAll(true)}
+            disabled={loading || trades.length === 0}
+            className="px-3 py-1 bg-red-900 hover:bg-red-800 disabled:opacity-40 text-red-300 text-xs rounded-lg transition-colors"
+          >
+            Tout fermer
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-red-400">Fermer toutes les positions ?</span>
+            <button
+              onClick={() => closeAll()}
+              disabled={closeAllLoading}
+              className="px-3 py-1 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white text-xs rounded-lg transition-colors"
+            >
+              {closeAllLoading ? '...' : 'Confirmer'}
+            </button>
+            <button
+              onClick={() => setConfirmCloseAll(false)}
+              disabled={closeAllLoading}
+              className="px-3 py-1 bg-dark-600 hover:bg-dark-500 disabled:opacity-50 text-gray-400 text-xs rounded-lg transition-colors"
+            >
+              Annuler
+            </button>
+          </div>
+        )}
+      </div>
 
       {error && (
         <div className="mb-4 px-4 py-2.5 rounded-lg text-sm border bg-red-900 bg-opacity-30 text-red-400 border-red-800">

@@ -80,6 +80,7 @@ export const typeDefs = gql`
     closeManualTrade(tradeId: ID!): Trade!
     forceCloseTrade(tradeId: ID!): Trade!
     resetSession: Boolean!
+    closeAllTrades: BotStatus!
   }
 
   type Subscription {

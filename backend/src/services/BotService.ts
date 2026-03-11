@@ -2,25 +2,62 @@ import cron from 'node-cron';
 import { PrismaClient } from '@prisma/client';
 import { PubSub } from 'graphql-subscriptions';
 import { BinanceService } from './BinanceService';
+import { BinanceStreamService } from './BinanceStreamService';
 import { StrategyService } from './StrategyService';
 import { CryptoService } from './CryptoService';
 import { IBotStatus } from '../interfaces/IBotState';
+import { IMarkPriceUpdate, IKlineUpdate } from '../interfaces/IBinanceStreamService';
 
 export const pubsub = new PubSub();
 export const BOT_STATUS_UPDATED = 'BOT_STATUS_UPDATED';
 export const NEW_TRADE = 'NEW_TRADE';
 
+interface CachedTrade {
+  id: number;
+  symbol: string;
+  positionSide: string;
+  entryPrice: number;
+  quantity: number;
+  leverage: number;
+}
+
+interface BotStateCache {
+  id: number;
+  riskPercent: number;
+  takeProfitPct: number;
+  stopLossPct: number;
+  trailingStopPct: number;
+  maxOpenTrades: number;
+  leverage: number;
+  autoSelectPairs: boolean;
+}
+
 export class BotService {
-  private cronJob: cron.ScheduledTask | null = null;
+  // Infrastructure
   private binanceService: BinanceService | null = null;
   private strategyService: StrategyService | null = null;
+  private streamService: BinanceStreamService | null = null;
+  private maintenanceCron: cron.ScheduledTask | null = null;
+  private testnet = true;
+
+  // Runtime state (in-memory caches to avoid DB hits on every tick)
+  private isRunning = false;
+  private botStateCache: BotStateCache | null = null;
+  private openTradesCache = new Map<number, CachedTrade>(); // tradeId → trade
+  private closingInProgress = new Set<number>();            // avoid double-close
+  private subscribedSymbols = new Set<string>();
+
+  // TP/SL helpers
   private trailingHighs = new Map<number, number>();
   private trailingLows = new Map<number, number>();
-  // Cooldown: prevents re-entering the same symbol+side immediately after a close
-  private readonly COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
-  private recentlyClosed = new Map<string, number>(); // `${symbol}_${positionSide}` → timestamp
+  private readonly COOLDOWN_MS = 5 * 60 * 1_000;
+  private recentlyClosed = new Map<string, number>(); // `${symbol}_${positionSide}` → ms
 
   constructor(private readonly prisma: PrismaClient) {}
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle
+  // ---------------------------------------------------------------------------
 
   async initializeBinanceService(): Promise<boolean> {
     const config = await this.prisma.config.findFirst({ orderBy: { createdAt: 'desc' } });
@@ -28,6 +65,7 @@ export class BotService {
     try {
       const apiKey = CryptoService.decrypt(config.apiKeyEncrypted);
       const secretKey = CryptoService.decrypt(config.secretKeyEncrypted);
+      this.testnet = config.testnet;
       this.binanceService = new BinanceService(apiKey, secretKey, config.testnet);
       this.strategyService = new StrategyService(this.binanceService);
       return await this.binanceService.testConnection();
@@ -37,128 +75,193 @@ export class BotService {
   }
 
   async start(): Promise<void> {
+    if (this.isRunning) return;
+
     const ok = await this.initializeBinanceService();
     if (!ok) throw new Error('Cannot connect to Binance Futures. Check your API keys.');
 
     let state = await this.prisma.botState.findFirst();
-    if (!state) {
-      state = await this.prisma.botState.create({ data: { updatedAt: new Date() } });
-    }
+    if (!state) state = await this.prisma.botState.create({ data: { updatedAt: new Date() } });
     await this.prisma.botState.update({ where: { id: state.id }, data: { isRunning: true } });
 
-    this.cronJob = cron.schedule('* * * * *', () => this.runTick());
-    console.log('[BotService] Started — Binance Futures Demo mode');
+    this.isRunning = true;
+    this.botStateCache = this.extractStateCache(state);
+
+    await this.rebuildOpenTradesCache();
+    await this.resyncSubscriptions();
+
+    // Maintenance: refresh pairs + resync streams every 5 minutes
+    this.maintenanceCron = cron.schedule('*/5 * * * *', () => this.runMaintenance());
+
+    console.log('[BotService] Started — WebSocket real-time monitoring active');
     await this.publishStatus();
   }
 
   async stop(): Promise<void> {
-    this.cronJob?.stop();
-    this.cronJob = null;
+    this.maintenanceCron?.stop();
+    this.maintenanceCron = null;
+    this.streamService?.unsubscribe();
+    this.streamService = null;
+    this.subscribedSymbols.clear();
+    this.isRunning = false;
+    this.botStateCache = null;
+
     const state = await this.prisma.botState.findFirst();
-    if (state) {
-      await this.prisma.botState.update({ where: { id: state.id }, data: { isRunning: false } });
-    }
+    if (state) await this.prisma.botState.update({ where: { id: state.id }, data: { isRunning: false } });
+
     console.log('[BotService] Stopped');
     await this.publishStatus();
   }
 
-  private async runTick(): Promise<void> {
-    if (!this.binanceService || !this.strategyService) return;
-    try {
-      const state = await this.prisma.botState.findFirst();
-      if (!state?.isRunning) return;
+  // ---------------------------------------------------------------------------
+  // WebSocket handlers
+  // ---------------------------------------------------------------------------
 
-      const openTrades = await this.prisma.trade.findMany({
-        where: { status: 'OPEN' },
-        select: { id: true, symbol: true, positionSide: true, entryPrice: true, quantity: true, leverage: true, status: true },
-      });
+  private handleMarkPrice(data: IMarkPriceUpdate): void {
+    if (!this.isRunning || !this.botStateCache) return;
 
-      // Check exit conditions on all open trades
-      for (const trade of openTrades) {
-        await this.checkExitConditions(trade, state);
-      }
+    for (const trade of this.openTradesCache.values()) {
+      if (trade.symbol !== data.symbol) continue;
+      if (this.closingInProgress.has(trade.id)) continue;
 
-      // Check entry conditions if slots available
-      const currentOpen = await this.prisma.trade.count({ where: { status: 'OPEN' } });
-      if (currentOpen >= state.maxOpenTrades) return;
-
-      const activePairs = await this.getActivePairs(state);
-      const openSymbols = new Set(openTrades.map((t) => `${t.symbol}_${t.positionSide}`));
-
-      for (const pair of activePairs) {
-        const nowOpen = await this.prisma.trade.count({ where: { status: 'OPEN' } });
-        if (nowOpen >= state.maxOpenTrades) break;
-
-        const signal = await this.strategyService.analyzeSymbol(pair);
-
-        const longKey  = `${pair}_LONG`;
-        const shortKey = `${pair}_SHORT`;
-        const now = Date.now();
-        const longCoolingDown  = (now - (this.recentlyClosed.get(longKey)  ?? 0)) < this.COOLDOWN_MS;
-        const shortCoolingDown = (now - (this.recentlyClosed.get(shortKey) ?? 0)) < this.COOLDOWN_MS;
-
-        if (signal.action === 'LONG' && !openSymbols.has(longKey) && !longCoolingDown) {
-          await this.openPosition(pair, 'LONG', state);
-        } else if (signal.action === 'SHORT' && !openSymbols.has(shortKey) && !shortCoolingDown) {
-          await this.openPosition(pair, 'SHORT', state);
-        }
-      }
-
-      await this.publishStatus();
-    } catch (err) {
-      console.error('[BotService] Tick error:', err);
-    }
-  }
-
-  private async checkExitConditions(
-    trade: { id: number; symbol: string; positionSide: string; entryPrice: number; quantity: number; leverage: number },
-    state: { takeProfitPct: number; stopLossPct: number; trailingStopPct: number },
-  ): Promise<void> {
-    if (!this.binanceService) return;
-    try {
-      const currentPrice = await this.binanceService.getCurrentPrice(trade.symbol);
+      const price = data.markPrice;
       const isLong = trade.positionSide === 'LONG';
-
-      // For LONG: profit when price goes up. For SHORT: profit when price goes down.
       const pnlPct = isLong
-        ? ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100
-        : ((trade.entryPrice - currentPrice) / trade.entryPrice) * 100;
+        ? ((price - trade.entryPrice) / trade.entryPrice) * 100
+        : ((trade.entryPrice - price) / trade.entryPrice) * 100;
 
-      // Trailing logic
+      let reason: 'TAKE_PROFIT' | 'STOP_LOSS' | 'TRAILING_STOP' | null = null;
+
       if (isLong) {
         const high = this.trailingHighs.get(trade.id) ?? trade.entryPrice;
-        if (currentPrice > high) this.trailingHighs.set(trade.id, currentPrice);
-        const currentHigh = this.trailingHighs.get(trade.id)!;
-        const trailingDrop = ((currentHigh - currentPrice) / currentHigh) * 100;
+        if (price > high) this.trailingHighs.set(trade.id, price);
+        const trailingDrop = ((this.trailingHighs.get(trade.id)! - price) / this.trailingHighs.get(trade.id)!) * 100;
 
-        const tp = pnlPct >= state.takeProfitPct;
-        const sl = pnlPct <= -state.stopLossPct;
-        const trail = pnlPct >= 2 && trailingDrop >= state.trailingStopPct;
-
-        if (tp || sl || trail) {
-          await this.closePosition(trade, currentPrice, tp ? 'TAKE_PROFIT' : sl ? 'STOP_LOSS' : 'TRAILING_STOP');
-        }
+        if (pnlPct >= this.botStateCache.takeProfitPct) reason = 'TAKE_PROFIT';
+        else if (pnlPct <= -this.botStateCache.stopLossPct) reason = 'STOP_LOSS';
+        else if (pnlPct >= 2 && trailingDrop >= this.botStateCache.trailingStopPct) reason = 'TRAILING_STOP';
       } else {
         const low = this.trailingLows.get(trade.id) ?? trade.entryPrice;
-        if (currentPrice < low) this.trailingLows.set(trade.id, currentPrice);
-        const currentLow = this.trailingLows.get(trade.id)!;
-        const trailingRise = ((currentPrice - currentLow) / currentLow) * 100;
+        if (price < low) this.trailingLows.set(trade.id, price);
+        const trailingRise = ((price - this.trailingLows.get(trade.id)!) / this.trailingLows.get(trade.id)!) * 100;
 
-        const tp = pnlPct >= state.takeProfitPct;
-        const sl = pnlPct <= -state.stopLossPct;
-        const trail = pnlPct >= 2 && trailingRise >= state.trailingStopPct;
-
-        if (tp || sl || trail) {
-          await this.closePosition(trade, currentPrice, tp ? 'TAKE_PROFIT' : sl ? 'STOP_LOSS' : 'TRAILING_STOP');
-        }
+        if (pnlPct >= this.botStateCache.takeProfitPct) reason = 'TAKE_PROFIT';
+        else if (pnlPct <= -this.botStateCache.stopLossPct) reason = 'STOP_LOSS';
+        else if (pnlPct >= 2 && trailingRise >= this.botStateCache.trailingStopPct) reason = 'TRAILING_STOP';
       }
-    } catch (err) {
-      console.error(`[BotService] Exit check error ${trade.symbol}:`, err);
+
+      if (reason) {
+        // Lock immediately (synchronous) before any await
+        this.closingInProgress.add(trade.id);
+        this.openTradesCache.delete(trade.id);
+
+        this.closePosition(trade, price, reason)
+          .then(() => this.publishStatus())
+          .catch((err) => {
+            console.error(`[BotService] Close error ${trade.symbol} #${trade.id}:`, err);
+            // Restore to cache so next tick retries
+            this.openTradesCache.set(trade.id, trade);
+          })
+          .finally(() => this.closingInProgress.delete(trade.id));
+      }
     }
   }
 
-  private async openPosition(symbol: string, positionSide: 'LONG' | 'SHORT', state: { riskPercent: number; leverage: number }): Promise<void> {
+  private handleKlineClose(data: IKlineUpdate): void {
+    if (!data.isClosed || !this.isRunning || !this.botStateCache || !this.strategyService) return;
+    if (this.openTradesCache.size >= this.botStateCache.maxOpenTrades) return;
+
+    const symbol = data.symbol;
+    const now = Date.now();
+    const openKeys = new Set(
+      Array.from(this.openTradesCache.values()).map((t) => `${t.symbol}_${t.positionSide}`),
+    );
+    const longCooling = (now - (this.recentlyClosed.get(`${symbol}_LONG`) ?? 0)) < this.COOLDOWN_MS;
+    const shortCooling = (now - (this.recentlyClosed.get(`${symbol}_SHORT`) ?? 0)) < this.COOLDOWN_MS;
+    const state = this.botStateCache;
+
+    this.strategyService.analyzeSymbol(symbol)
+      .then(async (signal) => {
+        if (signal.action === 'LONG' && !openKeys.has(`${symbol}_LONG`) && !longCooling) {
+          await this.openPosition(symbol, 'LONG', state);
+        } else if (signal.action === 'SHORT' && !openKeys.has(`${symbol}_SHORT`) && !shortCooling) {
+          await this.openPosition(symbol, 'SHORT', state);
+        }
+      })
+      .catch((err) => console.error(`[BotService] Kline entry error ${symbol}:`, err));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Subscription management
+  // ---------------------------------------------------------------------------
+
+  private async rebuildOpenTradesCache(): Promise<void> {
+    const openTrades = await this.prisma.trade.findMany({
+      where: { status: 'OPEN' },
+      select: { id: true, symbol: true, positionSide: true, entryPrice: true, quantity: true, leverage: true },
+    });
+    this.openTradesCache.clear();
+    for (const t of openTrades) this.openTradesCache.set(t.id, t);
+  }
+
+  private async resyncSubscriptions(): Promise<void> {
+    const symbols = await this.getSubscriptionSymbols();
+    const newSet = new Set(symbols);
+
+    const changed =
+      symbols.length !== this.subscribedSymbols.size ||
+      symbols.some((s) => !this.subscribedSymbols.has(s));
+
+    if (!changed) return;
+
+    this.subscribedSymbols = newSet;
+
+    if (symbols.length === 0) {
+      this.streamService?.unsubscribe();
+      return;
+    }
+
+    if (!this.streamService) {
+      this.streamService = new BinanceStreamService(this.testnet);
+    }
+
+    this.streamService.subscribe(
+      symbols,
+      (d) => this.handleMarkPrice(d),
+      (d) => this.handleKlineClose(d),
+    );
+    console.log(`[BotService] Subscribed to ${symbols.length} symbols`);
+  }
+
+  private async getSubscriptionSymbols(): Promise<string[]> {
+    const activePairs = await this.getActivePairs(this.botStateCache ?? { autoSelectPairs: false });
+    const openSymbols = Array.from(this.openTradesCache.values()).map((t) => t.symbol);
+    return Array.from(new Set([...activePairs, ...openSymbols]));
+  }
+
+  private async runMaintenance(): Promise<void> {
+    try {
+      if (!this.isRunning) return;
+      const state = await this.prisma.botState.findFirst();
+      if (state) this.botStateCache = this.extractStateCache(state);
+      await this.resyncSubscriptions();
+      await this.publishStatus();
+    } catch (err) {
+      console.error('[BotService] Maintenance error:', err);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Trade operations
+  // ---------------------------------------------------------------------------
+
+  private async openPosition(
+    symbol: string,
+    positionSide: 'LONG' | 'SHORT',
+    state: BotStateCache,
+  ): Promise<void> {
     if (!this.binanceService) return;
+    if (this.openTradesCache.size >= state.maxOpenTrades) return;
     try {
       const balance = await this.binanceService.getUsdtBalance();
       const tradeAmount = (balance * state.riskPercent) / 100;
@@ -167,9 +270,10 @@ export class BotService {
         return;
       }
 
-      const order = positionSide === 'LONG'
-        ? await this.binanceService.openLong(symbol, tradeAmount, state.leverage)
-        : await this.binanceService.openShort(symbol, tradeAmount, state.leverage);
+      const order =
+        positionSide === 'LONG'
+          ? await this.binanceService.openLong(symbol, tradeAmount, state.leverage)
+          : await this.binanceService.openShort(symbol, tradeAmount, state.leverage);
 
       const trade = await this.prisma.trade.create({
         data: {
@@ -184,6 +288,21 @@ export class BotService {
         },
       });
 
+      const cached: CachedTrade = {
+        id: trade.id,
+        symbol: trade.symbol,
+        positionSide: trade.positionSide,
+        entryPrice: trade.entryPrice,
+        quantity: trade.quantity,
+        leverage: trade.leverage,
+      };
+      this.openTradesCache.set(trade.id, cached);
+
+      // If this symbol wasn't subscribed yet, resync streams
+      if (!this.subscribedSymbols.has(symbol)) {
+        await this.resyncSubscriptions();
+      }
+
       console.log(`[BotService] OPEN ${positionSide} ${symbol} @ ${order.price} x${state.leverage} qty:${order.quantity}`);
       pubsub.publish(NEW_TRADE, { newTrade: this.serializeTrade(trade) });
     } catch (err) {
@@ -192,42 +311,40 @@ export class BotService {
   }
 
   private async closePosition(
-    trade: { id: number; symbol: string; positionSide: string; entryPrice: number; quantity: number; leverage: number },
+    trade: CachedTrade,
     exitPrice: number,
     reason: string,
   ): Promise<void> {
     if (!this.binanceService) throw new Error('Binance not initialized');
 
-    // Use the actual position size from Binance to avoid 400 errors caused by quantity mismatch
+    // Always get the real quantity from Binance to avoid quantity mismatch errors
     const positions = await this.binanceService.getOpenPositions();
     const position = positions.find(
       (p) => p.symbol === trade.symbol && p.positionSide === trade.positionSide,
     );
     if (!position) {
-      throw new Error(`Position not found on Binance (${trade.symbol} ${trade.positionSide}). Use force close to clean up DB.`);
+      throw new Error(
+        `Position not found on Binance (${trade.symbol} ${trade.positionSide}). Use force close to clean up DB.`,
+      );
     }
     const quantity = Math.abs(position.positionAmt);
 
-    const order = trade.positionSide === 'LONG'
-      ? await this.binanceService.closeLong(trade.symbol, quantity)
-      : await this.binanceService.closeShort(trade.symbol, quantity);
+    const order =
+      trade.positionSide === 'LONG'
+        ? await this.binanceService.closeLong(trade.symbol, quantity)
+        : await this.binanceService.closeShort(trade.symbol, quantity);
 
     const actualExit = order.price || exitPrice;
     const isLong = trade.positionSide === 'LONG';
+    const TAKER_FEE_RATE = 0.0005; // 0.05% per side
 
-    // Binance Futures taker fee (MARKET orders): 0.05% per side
-    const TAKER_FEE_RATE = 0.0005;
-    const openFee  = quantity * trade.entryPrice * TAKER_FEE_RATE;
-    const closeFee = quantity * actualExit       * TAKER_FEE_RATE;
-    const totalFees = openFee + closeFee;
-
+    const openFee = quantity * trade.entryPrice * TAKER_FEE_RATE;
+    const closeFee = quantity * actualExit * TAKER_FEE_RATE;
     const grossPnl = isLong
       ? quantity * (actualExit - trade.entryPrice)
       : quantity * (trade.entryPrice - actualExit);
-    const pnl = grossPnl - totalFees;
-
-    const margin = (quantity * trade.entryPrice) / trade.leverage;
-    const pnlPct = (pnl / margin) * 100;
+    const pnl = grossPnl - openFee - closeFee;
+    const pnlPct = (pnl / ((quantity * trade.entryPrice) / trade.leverage)) * 100;
 
     const updated = await this.prisma.trade.update({
       where: { id: trade.id },
@@ -244,9 +361,15 @@ export class BotService {
     this.trailingHighs.delete(trade.id);
     this.trailingLows.delete(trade.id);
     this.recentlyClosed.set(`${trade.symbol}_${trade.positionSide}`, Date.now());
-    console.log(`[BotService] CLOSE ${trade.positionSide} ${trade.symbol} (${reason}) PnL: ${pnl.toFixed(2)} USDT (${pnlPct.toFixed(2)}%)`);
+    console.log(
+      `[BotService] CLOSE ${trade.positionSide} ${trade.symbol} (${reason}) PnL: ${pnl.toFixed(2)} USDT (${pnlPct.toFixed(2)}%)`,
+    );
     pubsub.publish(NEW_TRADE, { newTrade: this.serializeTrade(updated) });
   }
+
+  // ---------------------------------------------------------------------------
+  // Public mutations
+  // ---------------------------------------------------------------------------
 
   async openManualTrade(symbol: string, quoteQty: number, positionSide: 'LONG' | 'SHORT'): Promise<any> {
     const ok = await this.initializeBinanceService();
@@ -255,9 +378,10 @@ export class BotService {
     const state = await this.prisma.botState.findFirst();
     const leverage = state?.leverage ?? 10;
 
-    const order = positionSide === 'LONG'
-      ? await this.binanceService!.openLong(symbol, quoteQty, leverage)
-      : await this.binanceService!.openShort(symbol, quoteQty, leverage);
+    const order =
+      positionSide === 'LONG'
+        ? await this.binanceService!.openLong(symbol, quoteQty, leverage)
+        : await this.binanceService!.openShort(symbol, quoteQty, leverage);
 
     const trade = await this.prisma.trade.create({
       data: {
@@ -272,6 +396,19 @@ export class BotService {
       },
     });
 
+    // Keep cache in sync even for manual trades
+    this.openTradesCache.set(trade.id, {
+      id: trade.id,
+      symbol: trade.symbol,
+      positionSide: trade.positionSide,
+      entryPrice: trade.entryPrice,
+      quantity: trade.quantity,
+      leverage: trade.leverage,
+    });
+    if (!this.subscribedSymbols.has(symbol) && this.isRunning) {
+      await this.resyncSubscriptions();
+    }
+
     console.log(`[BotService] MANUAL ${positionSide} ${symbol} @ ${order.price} x${leverage} qty:${order.quantity}`);
     pubsub.publish(NEW_TRADE, { newTrade: this.serializeTrade(trade) });
     return this.serializeTrade(trade);
@@ -284,31 +421,62 @@ export class BotService {
     const trade = await this.prisma.trade.findUnique({ where: { id: tradeId } });
     if (!trade || trade.status !== 'OPEN') throw new Error('Trade not found or already closed.');
 
-    const currentPrice = await this.binanceService!.getCurrentPrice(trade.symbol);
-    await this.closePosition(
-      { id: trade.id, symbol: trade.symbol, positionSide: trade.positionSide, entryPrice: trade.entryPrice, quantity: trade.quantity, leverage: trade.leverage },
-      currentPrice,
-      'MANUAL',
-    );
+    const cached: CachedTrade = {
+      id: trade.id,
+      symbol: trade.symbol,
+      positionSide: trade.positionSide,
+      entryPrice: trade.entryPrice,
+      quantity: trade.quantity,
+      leverage: trade.leverage,
+    };
 
+    this.closingInProgress.add(tradeId);
+    this.openTradesCache.delete(tradeId);
+    try {
+      const currentPrice = await this.binanceService!.getCurrentPrice(trade.symbol);
+      await this.closePosition(cached, currentPrice, 'MANUAL');
+    } catch (err) {
+      this.openTradesCache.set(tradeId, cached);
+      throw err;
+    } finally {
+      this.closingInProgress.delete(tradeId);
+    }
+
+    await this.publishStatus();
     const updated = await this.prisma.trade.findUnique({ where: { id: tradeId } });
     return this.serializeTrade(updated);
   }
 
-  async resetSession(): Promise<void> {
-    // Stop the bot if running
-    if (this.cronJob) await this.stop();
+  async closeAllTrades(): Promise<IBotStatus> {
+    if (!this.binanceService) {
+      const ok = await this.initializeBinanceService();
+      if (!ok) throw new Error('Cannot connect to Binance. Check your API keys.');
+    }
 
-    // Wipe all trade history
-    await this.prisma.trade.deleteMany();
+    const openTrades = await this.prisma.trade.findMany({
+      where: { status: 'OPEN' },
+      select: { id: true, symbol: true, positionSide: true, entryPrice: true, quantity: true, leverage: true },
+    });
 
-    // Clear in-memory state
-    this.trailingHighs.clear();
-    this.trailingLows.clear();
-    this.recentlyClosed.clear();
+    await Promise.allSettled(
+      openTrades.map(async (trade) => {
+        if (this.closingInProgress.has(trade.id)) return;
+        this.closingInProgress.add(trade.id);
+        this.openTradesCache.delete(trade.id);
+        try {
+          const currentPrice = await this.binanceService!.getCurrentPrice(trade.symbol);
+          await this.closePosition(trade, currentPrice, 'CLOSE_ALL');
+        } catch (err) {
+          console.error(`[BotService] CloseAll error ${trade.symbol} #${trade.id}:`, err);
+          this.openTradesCache.set(trade.id, trade);
+        } finally {
+          this.closingInProgress.delete(trade.id);
+        }
+      }),
+    );
 
-    console.log('[BotService] Session reset — all trades deleted');
     await this.publishStatus();
+    return this.getBotStatus();
   }
 
   async forceCloseTrade(tradeId: number): Promise<any> {
@@ -320,12 +488,29 @@ export class BotService {
       data: { status: 'CLOSED', closedAt: new Date(), exitPrice: trade.entryPrice, pnl: 0, pnlPercent: 0 },
     });
 
+    this.openTradesCache.delete(tradeId);
     this.trailingHighs.delete(tradeId);
     this.trailingLows.delete(tradeId);
     console.log(`[BotService] FORCE CLOSE trade #${tradeId} ${trade.symbol} (local DB only)`);
     pubsub.publish(NEW_TRADE, { newTrade: this.serializeTrade(updated) });
     return this.serializeTrade(updated);
   }
+
+  async resetSession(): Promise<void> {
+    if (this.isRunning) await this.stop();
+    await this.prisma.trade.deleteMany();
+    this.openTradesCache.clear();
+    this.closingInProgress.clear();
+    this.trailingHighs.clear();
+    this.trailingLows.clear();
+    this.recentlyClosed.clear();
+    console.log('[BotService] Session reset — all trades deleted');
+    await this.publishStatus();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Query helpers
+  // ---------------------------------------------------------------------------
 
   private async getActivePairs(state: { autoSelectPairs: boolean }): Promise<string[]> {
     if (!this.binanceService) return [];
@@ -340,8 +525,7 @@ export class BotService {
         });
       }
       const manualPairs = await this.prisma.tradingPair.findMany({ where: { isActive: true, isManual: true } });
-      const all = new Set([...topPairs.map((p) => p.symbol), ...manualPairs.map((p) => p.symbol)]);
-      return Array.from(all);
+      return Array.from(new Set([...topPairs.map((p) => p.symbol), ...manualPairs.map((p) => p.symbol)]));
     }
 
     const pairs = await this.prisma.tradingPair.findMany({ where: { isActive: true } });
@@ -350,9 +534,7 @@ export class BotService {
 
   async getBotStatus(): Promise<IBotStatus> {
     let state = await this.prisma.botState.findFirst();
-    if (!state) {
-      state = await this.prisma.botState.create({ data: { updatedAt: new Date() } });
-    }
+    if (!state) state = await this.prisma.botState.create({ data: { updatedAt: new Date() } });
 
     const [openTrades, closedTrades, activePairs] = await Promise.all([
       this.prisma.trade.findMany({ where: { status: 'OPEN' } }),
@@ -378,6 +560,19 @@ export class BotService {
   private async publishStatus(): Promise<void> {
     const status = await this.getBotStatus();
     pubsub.publish(BOT_STATUS_UPDATED, { botStatusUpdated: status });
+  }
+
+  private extractStateCache(state: any): BotStateCache {
+    return {
+      id: state.id,
+      riskPercent: state.riskPercent,
+      takeProfitPct: state.takeProfitPct,
+      stopLossPct: state.stopLossPct,
+      trailingStopPct: state.trailingStopPct,
+      maxOpenTrades: state.maxOpenTrades,
+      leverage: state.leverage,
+      autoSelectPairs: state.autoSelectPairs,
+    };
   }
 
   private serializeTrade(trade: any): any {
