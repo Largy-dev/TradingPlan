@@ -23,6 +23,19 @@ export class BinanceService implements IBinanceService {
       baseURL,
       headers: { 'X-MBX-APIKEY': apiKey },
     });
+
+    // Surface the real Binance error message instead of generic "Request failed with status 400"
+    this.http.interceptors.response.use(
+      (res) => res,
+      (err) => {
+        const data = err?.response?.data;
+        if (data?.msg) {
+          const binanceErr = new Error(`Binance error ${data.code}: ${data.msg}`);
+          return Promise.reject(binanceErr);
+        }
+        return Promise.reject(err);
+      },
+    );
   }
 
   private sign(params: Record<string, string | number>): string {
