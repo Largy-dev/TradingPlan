@@ -62,6 +62,12 @@ export const CLOSE_MANUAL_TRADE = gql`
   }
 `;
 
+export const RESET_SESSION = gql`
+  mutation ResetSession {
+    resetSession
+  }
+`;
+
 export const FORCE_CLOSE_TRADE = gql`
   mutation ForceCloseTrade($tradeId: ID!) {
     forceCloseTrade(tradeId: $tradeId) {
