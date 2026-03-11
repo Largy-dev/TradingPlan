@@ -205,10 +205,20 @@ export class BotService {
 
     const actualExit = order.price || exitPrice;
     const isLong = trade.positionSide === 'LONG';
-    const pnlPct = isLong
-      ? ((actualExit - trade.entryPrice) / trade.entryPrice) * 100 * trade.leverage
-      : ((trade.entryPrice - actualExit) / trade.entryPrice) * 100 * trade.leverage;
-    const pnl = (trade.quantity * trade.entryPrice * (pnlPct / 100)) / trade.leverage;
+
+    // Binance Futures taker fee (MARKET orders): 0.04% per side
+    const TAKER_FEE_RATE = 0.0004;
+    const openFee  = quantity * trade.entryPrice * TAKER_FEE_RATE;
+    const closeFee = quantity * actualExit       * TAKER_FEE_RATE;
+    const totalFees = openFee + closeFee;
+
+    const grossPnl = isLong
+      ? quantity * (actualExit - trade.entryPrice)
+      : quantity * (trade.entryPrice - actualExit);
+    const pnl = grossPnl - totalFees;
+
+    const margin = (quantity * trade.entryPrice) / trade.leverage;
+    const pnlPct = (pnl / margin) * 100;
 
     const updated = await this.prisma.trade.update({
       where: { id: trade.id },
