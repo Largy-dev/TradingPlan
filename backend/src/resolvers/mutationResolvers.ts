@@ -80,4 +80,9 @@ export const buildMutationResolvers = (prisma: PrismaClient, botService: BotServ
   forceCloseTrade: async (_: unknown, { tradeId }: { tradeId: string }) => {
     return botService.forceCloseTrade(parseInt(tradeId));
   },
+
+  resetSession: async () => {
+    await botService.resetSession();
+    return true;
+  },
 });

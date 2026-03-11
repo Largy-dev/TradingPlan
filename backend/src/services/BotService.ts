@@ -295,6 +295,22 @@ export class BotService {
     return this.serializeTrade(updated);
   }
 
+  async resetSession(): Promise<void> {
+    // Stop the bot if running
+    if (this.cronJob) await this.stop();
+
+    // Wipe all trade history
+    await this.prisma.trade.deleteMany();
+
+    // Clear in-memory state
+    this.trailingHighs.clear();
+    this.trailingLows.clear();
+    this.recentlyClosed.clear();
+
+    console.log('[BotService] Session reset — all trades deleted');
+    await this.publishStatus();
+  }
+
   async forceCloseTrade(tradeId: number): Promise<any> {
     const trade = await this.prisma.trade.findUnique({ where: { id: tradeId } });
     if (!trade || trade.status !== 'OPEN') throw new Error('Trade not found or already closed.');

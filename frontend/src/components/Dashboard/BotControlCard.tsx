@@ -1,3 +1,7 @@
+import { useState } from 'react';
+import { useMutation } from '@apollo/client';
+import { RESET_SESSION } from '../../graphql/mutations';
+import { GET_BOT_STATUS, GET_TRADES } from '../../graphql/queries';
 import { IBotStatus } from '../../interfaces/IBotStatus';
 
 interface Props {
@@ -8,7 +12,13 @@ interface Props {
 }
 
 export function BotControlCard({ status, onStart, onStop, loading }: Props) {
+  const [confirming, setConfirming] = useState(false);
   const pnlColor = status.totalPnl >= 0 ? 'text-green-400' : 'text-red-400';
+
+  const [resetSession, { loading: resetLoading }] = useMutation(RESET_SESSION, {
+    refetchQueries: [{ query: GET_BOT_STATUS }, { query: GET_TRADES }],
+    onCompleted: () => setConfirming(false),
+  });
 
   return (
     <div className="bg-dark-800 rounded-xl border border-dark-600 p-6">
@@ -23,17 +33,46 @@ export function BotControlCard({ status, onStart, onStop, loading }: Props) {
           </div>
         </div>
 
-        <button
-          onClick={status.isRunning ? onStop : onStart}
-          disabled={loading}
-          className={`px-8 py-3 rounded-lg font-semibold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-            status.isRunning
-              ? 'bg-red-600 hover:bg-red-700 text-white'
-              : 'bg-green-600 hover:bg-green-700 text-white'
-          }`}
-        >
-          {loading ? 'Loading...' : status.isRunning ? 'Stop Bot' : 'Start Bot'}
-        </button>
+        <div className="flex items-center gap-3">
+          {confirming ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-yellow-400">Supprimer tous les trades ?</span>
+              <button
+                onClick={() => resetSession()}
+                disabled={resetLoading}
+                className="px-3 py-1.5 bg-yellow-600 hover:bg-yellow-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
+              >
+                {resetLoading ? '...' : 'Confirmer'}
+              </button>
+              <button
+                onClick={() => setConfirming(false)}
+                className="px-3 py-1.5 bg-dark-600 hover:bg-dark-500 text-gray-400 text-xs rounded-lg transition-colors"
+              >
+                Annuler
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirming(true)}
+              disabled={loading || resetLoading}
+              className="px-4 py-2 bg-dark-600 hover:bg-dark-500 disabled:opacity-50 text-gray-400 hover:text-gray-200 text-xs font-medium rounded-lg border border-dark-500 transition-colors"
+            >
+              Nouvelle session
+            </button>
+          )}
+
+          <button
+            onClick={status.isRunning ? onStop : onStart}
+            disabled={loading}
+            className={`px-8 py-3 rounded-lg font-semibold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+              status.isRunning
+                ? 'bg-red-600 hover:bg-red-700 text-white'
+                : 'bg-green-600 hover:bg-green-700 text-white'
+            }`}
+          >
+            {loading ? 'Loading...' : status.isRunning ? 'Stop Bot' : 'Start Bot'}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-4 mb-5">

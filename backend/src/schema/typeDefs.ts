@@ -79,6 +79,7 @@ export const typeDefs = gql`
     openManualTrade(symbol: String!, quoteQty: Float!, positionSide: String!): Trade!
     closeManualTrade(tradeId: ID!): Trade!
     forceCloseTrade(tradeId: ID!): Trade!
+    resetSession: Boolean!
   }
 
   type Subscription {
