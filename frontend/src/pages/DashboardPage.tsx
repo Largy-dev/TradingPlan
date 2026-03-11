@@ -71,7 +71,7 @@ export function DashboardPage() {
           <StatsGrid status={status} />
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
             <div className="xl:col-span-2"><PnlChart trades={trades} /></div>
-            <ManualTradeCard openTrades={openTrades} />
+            <ManualTradeCard />
           </div>
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
             <OpenTradesTable trades={openTrades} />
