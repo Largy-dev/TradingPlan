@@ -78,6 +78,7 @@ export const typeDefs = gql`
     refreshAutoPairs: [TradingPair!]!
     openManualTrade(symbol: String!, quoteQty: Float!, positionSide: String!): Trade!
     closeManualTrade(tradeId: ID!): Trade!
+    forceCloseTrade(tradeId: ID!): Trade!
   }
 
   type Subscription {

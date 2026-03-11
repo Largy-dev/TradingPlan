@@ -61,3 +61,11 @@ export const CLOSE_MANUAL_TRADE = gql`
     }
   }
 `;
+
+export const FORCE_CLOSE_TRADE = gql`
+  mutation ForceCloseTrade($tradeId: ID!) {
+    forceCloseTrade(tradeId: $tradeId) {
+      id symbol positionSide status closedAt
+    }
+  }
+`;

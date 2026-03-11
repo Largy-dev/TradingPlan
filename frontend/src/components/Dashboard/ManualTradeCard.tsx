@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation } from '@apollo/client';
-import { OPEN_MANUAL_TRADE, CLOSE_MANUAL_TRADE } from '../../graphql/mutations';
+import { OPEN_MANUAL_TRADE, CLOSE_MANUAL_TRADE, FORCE_CLOSE_TRADE } from '../../graphql/mutations';
 import { GET_TRADES } from '../../graphql/queries';
 import { ITrade } from '../../interfaces/ITrade';
 
@@ -12,6 +12,7 @@ export function ManualTradeCard({ openTrades }: Props) {
   const [symbol, setSymbol] = useState('BTCUSDT');
   const [quoteQty, setQuoteQty] = useState(100);
   const [feedback, setFeedback] = useState<{ msg: string; ok: boolean } | null>(null);
+  const [failedCloseIds, setFailedCloseIds] = useState<Set<string>>(new Set());
 
   const refetch = { refetchQueries: [{ query: GET_TRADES }] };
 
@@ -34,6 +35,20 @@ export function ManualTradeCard({ openTrades }: Props) {
       const pct = d.closeManualTrade.pnlPercent?.toFixed(2);
       showFeedback(`Trade fermé — PnL: ${pnl >= 0 ? '+' : ''}${pnl} USDT (${pct}%)`, parseFloat(pnl) >= 0);
     },
+    onError: (e, ctx) => {
+      const tradeId = (ctx?.variables as any)?.tradeId as string;
+      if (tradeId) setFailedCloseIds((prev) => new Set(prev).add(tradeId));
+      showFeedback(`Binance: ${e.message} — utilise "Forcer" pour nettoyer la DB`, false);
+    },
+  });
+
+  const [forceClose, { loading: forceLoading }] = useMutation(FORCE_CLOSE_TRADE, {
+    ...refetch,
+    onCompleted: (d) => {
+      const tradeId = d.forceCloseTrade.id;
+      setFailedCloseIds((prev) => { const s = new Set(prev); s.delete(tradeId); return s; });
+      showFeedback(`Position supprimée de la DB (sans ordre Binance)`, true);
+    },
     onError: (e) => showFeedback(e.message, false),
   });
 
@@ -47,7 +62,7 @@ export function ManualTradeCard({ openTrades }: Props) {
     mutation({ variables: { symbol: symbol.toUpperCase(), quoteQty, positionSide: side } });
   };
 
-  const loading = longLoading || shortLoading || closeLoading;
+  const loading = longLoading || shortLoading || closeLoading || forceLoading;
 
   return (
     <div className="bg-dark-800 rounded-xl border border-dark-600 p-6">
@@ -119,13 +134,25 @@ export function ManualTradeCard({ openTrades }: Props) {
                   </span>
                   <span className="text-gray-400 text-xs">${t.entryPrice.toFixed(2)} · {t.leverage}x</span>
                 </div>
-                <button
-                  onClick={() => closeTrade({ variables: { tradeId: t.id } })}
-                  disabled={closeLoading}
-                  className="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-300 text-xs rounded-lg transition-colors"
-                >
-                  {closeLoading ? '...' : 'Fermer'}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => closeTrade({ variables: { tradeId: t.id } })}
+                    disabled={loading}
+                    className="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-300 text-xs rounded-lg transition-colors"
+                  >
+                    {closeLoading ? '...' : 'Fermer'}
+                  </button>
+                  {failedCloseIds.has(t.id) && (
+                    <button
+                      onClick={() => forceClose({ variables: { tradeId: t.id } })}
+                      disabled={loading}
+                      title="Fermer uniquement dans la DB (si la position n'existe plus sur Binance)"
+                      className="px-3 py-1 bg-orange-800 hover:bg-orange-700 disabled:opacity-50 text-orange-300 text-xs rounded-lg transition-colors"
+                    >
+                      {forceLoading ? '...' : 'Forcer'}
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
