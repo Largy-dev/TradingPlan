@@ -244,10 +244,51 @@ export class BotService {
       if (!this.isRunning) return;
       const state = await this.prisma.botState.findFirst();
       if (state) this.botStateCache = this.extractStateCache(state);
+      await this.reconcilePositions();
       await this.resyncSubscriptions();
       await this.publishStatus();
     } catch (err) {
       console.error('[BotService] Maintenance error:', err);
+    }
+  }
+
+  /**
+   * Reconcile DB OPEN trades against actual Binance positions.
+   * If a DB trade is OPEN but no longer exists on Binance (closed externally),
+   * auto-force-close it to keep the DB in sync.
+   */
+  private async reconcilePositions(): Promise<void> {
+    if (!this.binanceService) return;
+    try {
+      const [dbOpenTrades, binancePositions] = await Promise.all([
+        this.prisma.trade.findMany({
+          where: { status: 'OPEN' },
+          select: { id: true, symbol: true, positionSide: true, entryPrice: true, quantity: true, leverage: true },
+        }),
+        this.binanceService.getOpenPositions(),
+      ]);
+
+      const binanceSet = new Set(
+        binancePositions.map((p) => `${p.symbol}_${p.positionSide}`),
+      );
+
+      for (const trade of dbOpenTrades) {
+        const key = `${trade.symbol}_${trade.positionSide}`;
+        if (!binanceSet.has(key)) {
+          console.warn(
+            `[BotService] Reconciliation: trade #${trade.id} ${key} not found on Binance — auto-force-closing`,
+          );
+          await this.prisma.trade.update({
+            where: { id: trade.id },
+            data: { status: 'CLOSED', closedAt: new Date(), exitPrice: trade.entryPrice, pnl: 0, pnlPercent: 0 },
+          });
+          this.openTradesCache.delete(trade.id);
+          this.trailingHighs.delete(trade.id);
+          this.trailingLows.delete(trade.id);
+        }
+      }
+    } catch (err) {
+      console.error('[BotService] Reconciliation error:', err);
     }
   }
 
