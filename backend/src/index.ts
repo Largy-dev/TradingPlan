@@ -53,10 +53,21 @@ async function main() {
   );
 
   const PORT = parseInt(process.env.PORT ?? '4000');
-  httpServer.listen(PORT, () => {
-    console.log(`Server ready at http://localhost:${PORT}/graphql`);
-    console.log(`WebSocket ready at ws://localhost:${PORT}/graphql`);
-  });
+  await new Promise<void>((resolve) => httpServer.listen(PORT, resolve));
+  console.log(`Server ready at http://localhost:${PORT}/graphql`);
+  console.log(`WebSocket ready at ws://localhost:${PORT}/graphql`);
+
+  // Restore bot running state after Docker restart
+  const savedState = await prisma.botState.findFirst();
+  if (savedState?.isRunning) {
+    try {
+      await botService.start();
+      console.log('[Server] Bot auto-restarted from saved state');
+    } catch (err) {
+      await prisma.botState.updateMany({ data: { isRunning: false } });
+      console.warn('[Server] Could not auto-restart bot (API keys invalid?):', err);
+    }
+  }
 }
 
 main().catch(console.error);
