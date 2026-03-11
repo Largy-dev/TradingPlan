@@ -20,12 +20,12 @@ model BotState {
   id              Int      @id @default(autoincrement())
   isRunning       Boolean  @default(false)
   strategy        String   @default("EMA_RSI_VOLUME")
-  riskPercent     Float    @default(2.0)
-  takeProfitPct   Float    @default(3.0)
-  stopLossPct     Float    @default(1.5)
-  trailingStopPct Float    @default(1.0)
-  maxOpenTrades   Int      @default(5)
-  leverage        Int      @default(10)
+  riskPercent     Float    @default(5.0)
+  takeProfitPct   Float    @default(2.0)
+  stopLossPct     Float    @default(1.0)
+  trailingStopPct Float    @default(0.5)
+  maxOpenTrades   Int      @default(20)
+  leverage        Int      @default(20)
   autoSelectPairs Boolean  @default(true)
   updatedAt       DateTime @updatedAt
 }

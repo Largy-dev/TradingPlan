@@ -305,7 +305,7 @@ export class BotService {
     if (!this.binanceService) return [];
 
     if (state.autoSelectPairs) {
-      const topPairs = await this.binanceService.getTopFuturesPairs(10_000_000, 2, 10);
+      const topPairs = await this.binanceService.getTopFuturesPairs(5_000_000, 1, 30);
       for (const pair of topPairs) {
         await this.prisma.tradingPair.upsert({
           where: { symbol: pair.symbol },
