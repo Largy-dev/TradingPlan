@@ -51,8 +51,10 @@ export class BotService {
   // TP/SL helpers
   private trailingHighs = new Map<number, number>();
   private trailingLows = new Map<number, number>();
-  private readonly COOLDOWN_MS = 5 * 60 * 1_000;
+  // After closing a position, wait 1 full 15m candle before re-entering same symbol+side
+  private readonly COOLDOWN_MS = 15 * 60 * 1_000;
   private recentlyClosed = new Map<string, number>(); // `${symbol}_${positionSide}` → ms
+  private scanInProgress = false; // prevent concurrent entry scans overloading the API
 
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -247,6 +249,9 @@ export class BotService {
    * so scanning every minute is equivalent to scanning at candle close.
    */
   private async runEntryScan(): Promise<void> {
+    // Prevent concurrent scans: if previous scan is still running (slow API), skip this tick
+    if (this.scanInProgress) return;
+    this.scanInProgress = true;
     try {
       if (!this.isRunning || !this.strategyService || !this.botStateCache) return;
       if (this.openTradesCache.size >= this.botStateCache.maxOpenTrades) return;
@@ -262,7 +267,7 @@ export class BotService {
         const openKeys = new Set(
           Array.from(this.openTradesCache.values()).map((t) => `${t.symbol}_${t.positionSide}`),
         );
-        const longCooling = (now - (this.recentlyClosed.get(`${symbol}_LONG`) ?? 0)) < this.COOLDOWN_MS;
+        const longCooling  = (now - (this.recentlyClosed.get(`${symbol}_LONG`)  ?? 0)) < this.COOLDOWN_MS;
         const shortCooling = (now - (this.recentlyClosed.get(`${symbol}_SHORT`) ?? 0)) < this.COOLDOWN_MS;
 
         if (openKeys.has(`${symbol}_LONG`) && openKeys.has(`${symbol}_SHORT`)) continue;
@@ -282,6 +287,8 @@ export class BotService {
       await this.publishStatus();
     } catch (err) {
       console.error('[BotService] Entry scan error:', err);
+    } finally {
+      this.scanInProgress = false;
     }
   }
 

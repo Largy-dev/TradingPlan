@@ -2,14 +2,17 @@ export interface ISignal {
   symbol: string;
   action: 'LONG' | 'SHORT' | 'CLOSE_LONG' | 'CLOSE_SHORT' | 'HOLD';
   confidence: number;
-  // 1h indicators
-  ema9: number;
+  // 15m short-term indicators
+  ema8: number;
   ema21: number;
-  rsi: number;
-  macdHistogram: number;
+  rsi7: number;
+  stochK: number;
+  stochD: number;
+  atrPct: number; // ATR as % of price — volatility measure
   volumeOk: boolean;
-  // 4h macro trend
+  // 1h macro filter
   macroTrendBullish: boolean;
+  rsi14_1h: number;
 }
 
 export interface IStrategyService {
