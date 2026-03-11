@@ -75,3 +75,9 @@ export const FORCE_CLOSE_TRADE = gql`
     }
   }
 `;
+
+export const CLOSE_ALL_TRADES = gql`
+  mutation CloseAllTrades {
+    closeAllTrades { id isRunning openPositions balance totalPnl }
+  }
+`;
