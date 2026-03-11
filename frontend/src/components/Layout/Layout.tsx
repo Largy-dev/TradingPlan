@@ -1,4 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom';
+import { version } from '../../../package.json';
 
 const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: '◈' },
@@ -61,8 +62,9 @@ export function Layout({ children }: LayoutProps) {
 
       {/* Main */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-14 bg-dark-800 border-b border-dark-600 flex items-center px-6">
+        <header className="h-14 bg-dark-800 border-b border-dark-600 flex items-center justify-between px-6">
           <h1 className="text-lg font-semibold text-white">{pageTitle}</h1>
+          <span className="text-xs text-gray-600 font-mono">v{version}</span>
         </header>
         <main className="flex-1 overflow-auto p-6">
           {children}
