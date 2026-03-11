@@ -1,3 +1,7 @@
+import { useState } from 'react';
+import { useMutation } from '@apollo/client';
+import { CLOSE_MANUAL_TRADE, FORCE_CLOSE_TRADE } from '../../graphql/mutations';
+import { GET_TRADES } from '../../graphql/queries';
 import { ITrade } from '../../interfaces/ITrade';
 
 interface Props {
@@ -5,6 +9,34 @@ interface Props {
 }
 
 export function OpenTradesTable({ trades }: Props) {
+  const [failedCloseIds, setFailedCloseIds] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+
+  const refetch = { refetchQueries: [{ query: GET_TRADES }] };
+
+  const [closeTrade, { loading: closeLoading }] = useMutation(CLOSE_MANUAL_TRADE, {
+    ...refetch,
+    onError: (e, ctx) => {
+      const tradeId = (ctx?.variables as any)?.tradeId as string;
+      if (tradeId) setFailedCloseIds((prev) => new Set(prev).add(tradeId));
+      setError(`Binance: ${e.message}`);
+      setTimeout(() => setError(null), 6000);
+    },
+  });
+
+  const [forceClose, { loading: forceLoading }] = useMutation(FORCE_CLOSE_TRADE, {
+    ...refetch,
+    onCompleted: (d) => {
+      setFailedCloseIds((prev) => { const s = new Set(prev); s.delete(d.forceCloseTrade.id); return s; });
+    },
+    onError: (e) => {
+      setError(e.message);
+      setTimeout(() => setError(null), 6000);
+    },
+  });
+
+  const loading = closeLoading || forceLoading;
+
   if (trades.length === 0) {
     return (
       <div className="bg-dark-800 rounded-xl border border-dark-600 p-6">
@@ -17,6 +49,13 @@ export function OpenTradesTable({ trades }: Props) {
   return (
     <div className="bg-dark-800 rounded-xl border border-dark-600 p-6">
       <h3 className="text-sm font-semibold text-gray-300 mb-4">Open Positions ({trades.length})</h3>
+
+      {error && (
+        <div className="mb-4 px-4 py-2.5 rounded-lg text-sm border bg-red-900 bg-opacity-30 text-red-400 border-red-800">
+          {error}
+        </div>
+      )}
+
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -27,6 +66,7 @@ export function OpenTradesTable({ trades }: Props) {
               <th className="pb-3 font-medium">Qty</th>
               <th className="pb-3 font-medium">Leverage</th>
               <th className="pb-3 font-medium">Opened</th>
+              <th className="pb-3 font-medium"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-dark-700">
@@ -46,6 +86,27 @@ export function OpenTradesTable({ trades }: Props) {
                 <td className="py-3 text-gray-300">{t.quantity}</td>
                 <td className="py-3 text-yellow-400 font-medium">{t.leverage}x</td>
                 <td className="py-3 text-gray-500 text-xs">{new Date(t.openedAt).toLocaleString()}</td>
+                <td className="py-3">
+                  <div className="flex gap-2 justify-end">
+                    <button
+                      onClick={() => closeTrade({ variables: { tradeId: t.id } })}
+                      disabled={loading}
+                      className="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-300 text-xs rounded-lg transition-colors"
+                    >
+                      {closeLoading ? '...' : 'Fermer'}
+                    </button>
+                    {failedCloseIds.has(t.id) && (
+                      <button
+                        onClick={() => forceClose({ variables: { tradeId: t.id } })}
+                        disabled={loading}
+                        title="Fermer uniquement dans la DB (si la position n'existe plus sur Binance)"
+                        className="px-3 py-1 bg-orange-800 hover:bg-orange-700 disabled:opacity-50 text-orange-300 text-xs rounded-lg transition-colors"
+                      >
+                        {forceLoading ? '...' : 'Forcer'}
+                      </button>
+                    )}
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
