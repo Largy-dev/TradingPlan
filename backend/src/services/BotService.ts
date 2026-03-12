@@ -84,6 +84,25 @@ export class BotService {
 
     let state = await this.prisma.botState.findFirst();
     if (!state) state = await this.prisma.botState.create({ data: { updatedAt: new Date() } });
+
+    // One-time migration: update old EMA_RSI_VOLUME defaults to the new
+    // Pullback Scalping recommended values (only runs once per installation).
+    if (state.strategy === 'EMA_RSI_VOLUME') {
+      state = await this.prisma.botState.update({
+        where: { id: state.id },
+        data: {
+          strategy: 'PULLBACK_SCALPING',
+          takeProfitPct: 0.8,
+          stopLossPct: 0.4,
+          trailingStopPct: 0.2,
+          riskPercent: 2.0,
+          leverage: 10,
+          maxOpenTrades: 3,
+        },
+      });
+      console.log('[BotService] Migrated risk settings to PULLBACK_SCALPING defaults (TP 0.8% / SL 0.4% / 10x / 2% risk)');
+    }
+
     await this.prisma.botState.update({ where: { id: state.id }, data: { isRunning: true } });
 
     this.isRunning = true;
@@ -145,7 +164,8 @@ export class BotService {
 
         if (pnlPct >= this.botStateCache.takeProfitPct) reason = 'TAKE_PROFIT';
         else if (pnlPct <= -this.botStateCache.stopLossPct) reason = 'STOP_LOSS';
-        else if (pnlPct >= 2 && trailingDrop >= this.botStateCache.trailingStopPct) reason = 'TRAILING_STOP';
+        // Trailing activates at 50% of TP so it works regardless of TP setting
+        else if (pnlPct >= this.botStateCache.takeProfitPct * 0.5 && trailingDrop >= this.botStateCache.trailingStopPct) reason = 'TRAILING_STOP';
       } else {
         const low = this.trailingLows.get(trade.id) ?? trade.entryPrice;
         if (price < low) this.trailingLows.set(trade.id, price);
@@ -153,7 +173,8 @@ export class BotService {
 
         if (pnlPct >= this.botStateCache.takeProfitPct) reason = 'TAKE_PROFIT';
         else if (pnlPct <= -this.botStateCache.stopLossPct) reason = 'STOP_LOSS';
-        else if (pnlPct >= 2 && trailingRise >= this.botStateCache.trailingStopPct) reason = 'TRAILING_STOP';
+        // Trailing activates at 50% of TP so it works regardless of TP setting
+        else if (pnlPct >= this.botStateCache.takeProfitPct * 0.5 && trailingRise >= this.botStateCache.trailingStopPct) reason = 'TRAILING_STOP';
       }
 
       if (reason) {

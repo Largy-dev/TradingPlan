@@ -55,7 +55,7 @@ export function StrategyConfig({ status, onUpdate, loading }: Props) {
     <div className="bg-dark-800 rounded-xl border border-dark-600 p-6">
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-base font-semibold text-white">Strategy Configuration</h2>
-        <span className="text-xs text-gray-400">EMA 9/21 + RSI + Volume — Futures</span>
+        <span className="text-xs text-gray-400">Pullback Scalping — 4h/1h/15m Futures</span>
       </div>
       <p className="text-xs text-gray-500 mb-5">Changes take effect on the next bot tick</p>
 
@@ -71,11 +71,11 @@ export function StrategyConfig({ status, onUpdate, loading }: Props) {
           onChange={(v) => setForm((f) => ({ ...f, leverage: v }))} />
         <SliderField label="Risk per Trade (% of balance)" value={form.riskPercent} min={0.5} max={10} step={0.5} unit="%"
           onChange={(v) => setForm((f) => ({ ...f, riskPercent: v }))} />
-        <SliderField label="Take Profit" value={form.takeProfitPct} min={1} max={20} step={0.5} unit="%"
+        <SliderField label="Take Profit" value={form.takeProfitPct} min={0.2} max={5} step={0.1} unit="%"
           onChange={(v) => setForm((f) => ({ ...f, takeProfitPct: v }))} />
-        <SliderField label="Stop Loss" value={form.stopLossPct} min={0.5} max={10} step={0.5} unit="%"
+        <SliderField label="Stop Loss" value={form.stopLossPct} min={0.1} max={5} step={0.1} unit="%"
           onChange={(v) => setForm((f) => ({ ...f, stopLossPct: v }))} />
-        <SliderField label="Trailing Stop" value={form.trailingStopPct} min={0.5} max={5} step={0.5} unit="%"
+        <SliderField label="Trailing Stop" value={form.trailingStopPct} min={0.1} max={2} step={0.1} unit="%"
           onChange={(v) => setForm((f) => ({ ...f, trailingStopPct: v }))} />
         <SliderField label="Max Open Trades" value={form.maxOpenTrades} min={1} max={20} step={1} unit=" trades"
           onChange={(v) => setForm((f) => ({ ...f, maxOpenTrades: v }))} />

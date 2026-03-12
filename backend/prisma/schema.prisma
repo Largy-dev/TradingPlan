@@ -19,13 +19,13 @@ model Config {
 model BotState {
   id              Int      @id @default(autoincrement())
   isRunning       Boolean  @default(false)
-  strategy        String   @default("EMA_RSI_VOLUME")
-  riskPercent     Float    @default(5.0)
-  takeProfitPct   Float    @default(2.0)
-  stopLossPct     Float    @default(1.0)
-  trailingStopPct Float    @default(0.5)
-  maxOpenTrades   Int      @default(4)
-  leverage        Int      @default(20)
+  strategy        String   @default("PULLBACK_SCALPING")
+  riskPercent     Float    @default(2.0)
+  takeProfitPct   Float    @default(0.8)
+  stopLossPct     Float    @default(0.4)
+  trailingStopPct Float    @default(0.2)
+  maxOpenTrades   Int      @default(3)
+  leverage        Int      @default(10)
   updatedAt       DateTime @updatedAt
 }
 

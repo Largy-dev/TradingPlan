@@ -55,8 +55,8 @@ export function Layout({ children }: LayoutProps) {
         </nav>
 
         <div className="px-4 py-3 border-t border-dark-600">
-          <p className="text-xs text-gray-600">Strategy: EMA 9/21 + RSI</p>
-          <p className="text-xs text-gray-600">Timeframe: 1h</p>
+          <p className="text-xs text-gray-600">Strategy: Pullback Scalping</p>
+          <p className="text-xs text-gray-600">Timeframe: 4h / 1h / 15m</p>
         </div>
       </aside>
 
