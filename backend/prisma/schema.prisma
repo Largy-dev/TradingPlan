@@ -24,9 +24,8 @@ model BotState {
   takeProfitPct   Float    @default(2.0)
   stopLossPct     Float    @default(1.0)
   trailingStopPct Float    @default(0.5)
-  maxOpenTrades   Int      @default(20)
+  maxOpenTrades   Int      @default(4)
   leverage        Int      @default(20)
-  autoSelectPairs Boolean  @default(true)
   updatedAt       DateTime @updatedAt
 }
 
@@ -34,7 +33,6 @@ model TradingPair {
   id        Int      @id @default(autoincrement())
   symbol    String   @unique
   isActive  Boolean  @default(true)
-  isManual  Boolean  @default(false)
   createdAt DateTime @default(now())
 }
 

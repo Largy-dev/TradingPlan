@@ -4,7 +4,7 @@ export const GET_BOT_STATUS = gql`
   query GetBotStatus {
     botStatus {
       id isRunning strategy riskPercent takeProfitPct stopLossPct
-      trailingStopPct maxOpenTrades leverage autoSelectPairs activePairs
+      trailingStopPct maxOpenTrades leverage activePairs
       openPositions totalPnl balance
     }
   }
@@ -21,7 +21,7 @@ export const GET_TRADES = gql`
 
 export const GET_TRADING_PAIRS = gql`
   query GetTradingPairs {
-    tradingPairs { id symbol isActive isManual createdAt }
+    tradingPairs { id symbol isActive createdAt }
   }
 `;
 
@@ -35,7 +35,7 @@ export const SUB_BOT_STATUS = gql`
   subscription OnBotStatusUpdated {
     botStatusUpdated {
       id isRunning strategy riskPercent takeProfitPct stopLossPct
-      trailingStopPct maxOpenTrades leverage autoSelectPairs activePairs
+      trailingStopPct maxOpenTrades leverage activePairs
       openPositions totalPnl balance
     }
   }

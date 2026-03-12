@@ -8,13 +8,6 @@ export interface IKline {
   closeTime: number;
 }
 
-export interface ITickerInfo {
-  symbol: string;
-  priceChangePercent: number;
-  quoteVolume: number;
-  lastPrice: number;
-}
-
 export interface IOrderResult {
   orderId: string;
   symbol: string;
@@ -38,7 +31,6 @@ export interface IBinanceService {
   testConnection(): Promise<boolean>;
   getUsdtBalance(): Promise<number>;
   getKlines(symbol: string, interval: string, limit: number): Promise<IKline[]>;
-  getTopFuturesPairs(minVolume: number, minPriceChangePct: number, limit: number): Promise<ITickerInfo[]>;
   setLeverage(symbol: string, leverage: number): Promise<void>;
   openLong(symbol: string, quoteQty: number, leverage: number): Promise<IOrderResult>;
   openShort(symbol: string, quoteQty: number, leverage: number): Promise<IOrderResult>;

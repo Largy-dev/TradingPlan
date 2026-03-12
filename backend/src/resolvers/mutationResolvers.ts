@@ -49,8 +49,8 @@ export const buildMutationResolvers = (prisma: PrismaClient, botService: BotServ
   addTradingPair: async (_: unknown, { symbol }: { symbol: string }) => {
     const pair = await prisma.tradingPair.upsert({
       where: { symbol: symbol.toUpperCase() },
-      update: { isActive: true, isManual: true },
-      create: { symbol: symbol.toUpperCase(), isActive: true, isManual: true },
+      update: { isActive: true },
+      create: { symbol: symbol.toUpperCase(), isActive: true },
     });
     return { ...pair, createdAt: pair.createdAt.toISOString() };
   },
@@ -58,12 +58,6 @@ export const buildMutationResolvers = (prisma: PrismaClient, botService: BotServ
   removeTradingPair: async (_: unknown, { id }: { id: string }) => {
     await prisma.tradingPair.delete({ where: { id: parseInt(id) } });
     return true;
-  },
-
-  refreshAutoPairs: async () => {
-    await botService.initializeBinanceService();
-    const pairs = await prisma.tradingPair.findMany({ where: { isActive: true } });
-    return pairs.map((p) => ({ ...p, createdAt: p.createdAt.toISOString() }));
   },
 
   openManualTrade: async (

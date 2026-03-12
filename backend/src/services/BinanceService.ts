@@ -1,11 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import crypto from 'crypto';
-import { IBinanceService, IKline, ITickerInfo, IOrderResult, IFuturesPosition } from '../interfaces/IBinanceService';
-
-const STABLECOINS = new Set([
-  'BUSDUSDT', 'USDCUSDT', 'TUSDUSDT', 'DAIUSDT',
-  'USTUSDT', 'FDUSDUSDT', 'USDPUSDT',
-]);
+import { IBinanceService, IKline, IOrderResult, IFuturesPosition } from '../interfaces/IBinanceService';
 
 export class BinanceService implements IBinanceService {
   private readonly http: AxiosInstance;
@@ -97,28 +92,6 @@ export class BinanceService implements IBinanceService {
       volume: parseFloat(k[5]),
       closeTime: k[6],
     }));
-  }
-
-  async getTopFuturesPairs(minVolume = 10_000_000, minPriceChangePct = 2, limit = 10): Promise<ITickerInfo[]> {
-    const { data } = await this.http.get('/fapi/v1/ticker/24hr');
-    return (data as any[])
-      .filter((t: any) => {
-        const symbol: string = t.symbol;
-        return (
-          symbol.endsWith('USDT') &&
-          !STABLECOINS.has(symbol) &&
-          parseFloat(t.quoteVolume) >= minVolume &&
-          Math.abs(parseFloat(t.priceChangePercent)) >= minPriceChangePct
-        );
-      })
-      .sort((a: any, b: any) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
-      .slice(0, limit)
-      .map((t: any) => ({
-        symbol: t.symbol,
-        priceChangePercent: parseFloat(t.priceChangePercent),
-        quoteVolume: parseFloat(t.quoteVolume),
-        lastPrice: parseFloat(t.lastPrice),
-      }));
   }
 
   async setLeverage(symbol: string, leverage: number): Promise<void> {

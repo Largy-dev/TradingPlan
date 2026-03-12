@@ -8,7 +8,6 @@ export interface IBotStatus {
   trailingStopPct: number;
   maxOpenTrades: number;
   leverage: number;
-  autoSelectPairs: boolean;
   activePairs: string[];
   openPositions: number;
   totalPnl: number;

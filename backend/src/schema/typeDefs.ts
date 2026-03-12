@@ -19,7 +19,6 @@ export const typeDefs = gql`
     trailingStopPct: Float!
     maxOpenTrades: Int!
     leverage: Int!
-    autoSelectPairs: Boolean!
     activePairs: [String!]!
     openPositions: Int!
     totalPnl: Float!
@@ -47,7 +46,6 @@ export const typeDefs = gql`
     id: ID!
     symbol: String!
     isActive: Boolean!
-    isManual: Boolean!
     createdAt: String!
   }
 
@@ -58,7 +56,6 @@ export const typeDefs = gql`
     trailingStopPct: Float
     maxOpenTrades: Int
     leverage: Int
-    autoSelectPairs: Boolean
   }
 
   type Query {
@@ -75,7 +72,6 @@ export const typeDefs = gql`
     updateStrategy(params: StrategyInput!): BotStatus!
     addTradingPair(symbol: String!): TradingPair!
     removeTradingPair(id: ID!): Boolean!
-    refreshAutoPairs: [TradingPair!]!
     openManualTrade(symbol: String!, quoteQty: Float!, positionSide: String!): Trade!
     closeManualTrade(tradeId: ID!): Trade!
     forceCloseTrade(tradeId: ID!): Trade!
