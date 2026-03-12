@@ -29,7 +29,6 @@ interface BotStateCache {
   trailingStopPct: number;
   maxOpenTrades: number;
   leverage: number;
-  autoSelectPairs: boolean;
 }
 
 export class BotService {
@@ -224,7 +223,7 @@ export class BotService {
   }
 
   private async getSubscriptionSymbols(): Promise<string[]> {
-    const activePairs = await this.getActivePairs(this.botStateCache ?? { autoSelectPairs: false });
+    const activePairs = await this.getActivePairs();
     const openSymbols = Array.from(this.openTradesCache.values()).map((t) => t.symbol);
     return Array.from(new Set([...activePairs, ...openSymbols]));
   }
@@ -593,22 +592,7 @@ export class BotService {
   // Query helpers
   // ---------------------------------------------------------------------------
 
-  private async getActivePairs(state: { autoSelectPairs: boolean }): Promise<string[]> {
-    if (!this.binanceService) return [];
-
-    if (state.autoSelectPairs) {
-      const topPairs = await this.binanceService.getTopFuturesPairs(5_000_000, 1, 30);
-      for (const pair of topPairs) {
-        await this.prisma.tradingPair.upsert({
-          where: { symbol: pair.symbol },
-          update: { isActive: true, isManual: false },
-          create: { symbol: pair.symbol, isActive: true, isManual: false },
-        });
-      }
-      const manualPairs = await this.prisma.tradingPair.findMany({ where: { isActive: true, isManual: true } });
-      return Array.from(new Set([...topPairs.map((p) => p.symbol), ...manualPairs.map((p) => p.symbol)]));
-    }
-
+  private async getActivePairs(): Promise<string[]> {
     const pairs = await this.prisma.tradingPair.findMany({ where: { isActive: true } });
     return pairs.map((p) => p.symbol);
   }
@@ -652,7 +636,6 @@ export class BotService {
       trailingStopPct: state.trailingStopPct,
       maxOpenTrades: state.maxOpenTrades,
       leverage: state.leverage,
-      autoSelectPairs: state.autoSelectPairs,
     };
   }
 

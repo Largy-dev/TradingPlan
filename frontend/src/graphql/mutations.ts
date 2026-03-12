@@ -23,26 +23,20 @@ export const STOP_BOT = gql`
 export const UPDATE_STRATEGY = gql`
   mutation UpdateStrategy($params: StrategyInput!) {
     updateStrategy(params: $params) {
-      id riskPercent takeProfitPct stopLossPct trailingStopPct maxOpenTrades leverage autoSelectPairs
+      id riskPercent takeProfitPct stopLossPct trailingStopPct maxOpenTrades leverage
     }
   }
 `;
 
 export const ADD_TRADING_PAIR = gql`
   mutation AddTradingPair($symbol: String!) {
-    addTradingPair(symbol: $symbol) { id symbol isActive isManual createdAt }
+    addTradingPair(symbol: $symbol) { id symbol isActive createdAt }
   }
 `;
 
 export const REMOVE_TRADING_PAIR = gql`
   mutation RemoveTradingPair($id: ID!) {
     removeTradingPair(id: $id)
-  }
-`;
-
-export const REFRESH_AUTO_PAIRS = gql`
-  mutation RefreshAutoPairs {
-    refreshAutoPairs { id symbol isActive isManual createdAt }
   }
 `;
 

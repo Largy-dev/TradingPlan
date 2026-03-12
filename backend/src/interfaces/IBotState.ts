@@ -8,7 +8,6 @@ export interface IBotState {
   trailingStopPct: number;
   maxOpenTrades: number;
   leverage: number;
-  autoSelectPairs: boolean;
 }
 
 export interface IBotStatus extends IBotState {
@@ -25,5 +24,4 @@ export interface IStrategyParams {
   trailingStopPct?: number;
   maxOpenTrades?: number;
   leverage?: number;
-  autoSelectPairs?: boolean;
 }

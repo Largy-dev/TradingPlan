@@ -32,7 +32,7 @@ export function StatsGrid({ status }: Props) {
     {
       label: 'Active Pairs',
       value: `${status.activePairs.length}`,
-      sub: status.autoSelectPairs ? 'Auto-selected' : 'Manual',
+      sub: 'Focused pairs',
       color: 'text-purple-400',
       bg: 'bg-purple-900 bg-opacity-20 border-purple-800',
     },
