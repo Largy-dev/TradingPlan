@@ -6,9 +6,13 @@ The backend (DB schema, GraphQL schema, resolvers) is the source of truth. Never
 
 ## Git Workflow
 
-When you need to make code changes, follow this workflow:
-1. Create a new branch from main with a descriptive name (e.g., feat/short-description or fix/short-description).
-2. Commit your changes directly — do NOT add a Co-Authored-By trailer.
-3. Push the branch to the remote.
-4. Create a pull request targeting main — do NOT add a Co-Authored-By trailer in the PR body.
-5. After the PR is merged, clean up by deleting the remote branch and the local branch
+Commit directly to main — no branches, no PRs.
+1. Make your changes.
+2. Bump `frontend/package.json` version by +0.0.1 (e.g. 0.3.2 → 0.3.3) on every commit.
+3. `git add` the relevant files + `frontend/package.json`.
+4. `git commit` — do NOT add a Co-Authored-By trailer.
+5. `git push origin main`.
+
+## Version Display
+
+The version from `frontend/package.json` is displayed live in the UI header (Layout.tsx imports it). Every commit must bump it so the user always knows which version is running.
