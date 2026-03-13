@@ -349,10 +349,12 @@ export class BotService {
 
         try {
           const signal = await this.strategyService.analyzeSymbol(symbol);
-          const tag = `[Scan] ${symbol} → ${signal.action} (conf:${signal.confidence.toFixed(2)}) `
-            + `atr:${signal.atrPct.toFixed(3)}% vol:${signal.volumeOk} `
-            + `stochK:${signal.stochK.toFixed(0)} rsi1h:${signal.rsi14_1h.toFixed(0)} rsi4h:${signal.rsi14_4h.toFixed(0)}`;
-          console.log(tag);
+          console.log(
+            `[Scan] ${symbol.padEnd(10)} ${signal.action.padEnd(5)} conf:${signal.confidence.toFixed(2)}` +
+            ` | rsi4h:${signal.rsi14_4h.toFixed(0)} rsi1h:${signal.rsi14_1h.toFixed(0)}` +
+            ` stochK:${signal.stochK.toFixed(0)} macroBull:${signal.macroTrendBullish}` +
+            ` pullback:${signal.pullbackDetected} vol:${signal.volumeOk} atr:${signal.atrPct.toFixed(3)}%`,
+          );
           if (signal.action === 'LONG' && !openKeys.has(`${symbol}_LONG`) && !longCooling) {
             await this.openPosition(symbol, 'LONG', state);
           } else if (signal.action === 'SHORT' && !openKeys.has(`${symbol}_SHORT`) && !shortCooling) {

@@ -76,12 +76,14 @@ export class StrategyService implements IStrategyService {
     const closes4h   = klines4h.map((k) => k.close);
     const currentPrice = closes15m.at(-1)!;
 
-    // ── 4h macro filter (conditions 1 & 2) ─────────────────────────────
-    const rsi14_4h = RSI.calculate({ period: 14, values: closes4h }).at(-1) ?? 50;
-    const ema50_4h = EMA.calculate({ period: 50, values: closes4h }).at(-1)!;
-    const price4h  = closes4h.at(-1)!;
-    const macroBull4h = rsi14_4h > 50 && price4h > ema50_4h; // loosened RSI: >50 (was >52)
-    const macroBear4h = rsi14_4h < 50 && price4h < ema50_4h;
+    // ── 4h macro filter ────────────────────────────────────────────────
+    // EMA21 (not EMA50) — reacts in ~3 weeks instead of ~8 weeks, so it
+    // doesn't lock the bot out of the market during medium-term corrections.
+    const rsi14_4h  = RSI.calculate({ period: 14, values: closes4h }).at(-1) ?? 50;
+    const ema21_4h  = EMA.calculate({ period: 21, values: closes4h }).at(-1)!;
+    const price4h   = closes4h.at(-1)!;
+    const macroBull4h = rsi14_4h > 50 && price4h > ema21_4h;
+    const macroBear4h = rsi14_4h < 50 && price4h < ema21_4h;
 
     // ── 1h trend + health (conditions 3 & 4) ──────────────────────────
     const ema21_1h       = EMA.calculate({ period: 21, values: closes1h }).at(-1)!;
