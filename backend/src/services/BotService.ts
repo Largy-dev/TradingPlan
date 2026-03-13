@@ -427,8 +427,9 @@ export class BotService {
     try {
       const balance = await this.binanceService.getUsdtBalance();
       const tradeAmount = (balance * state.riskPercent) / 100;
+      console.log(`[BotService] Opening ${positionSide} ${symbol} — balance:${balance.toFixed(2)} risk:${state.riskPercent}% tradeAmt:${tradeAmount.toFixed(2)}`);
       if (tradeAmount < 5) {
-        console.log(`[BotService] Insufficient balance for ${symbol}`);
+        console.log(`[BotService] Skipping ${symbol}: tradeAmount ${tradeAmount.toFixed(2)} < $5 minimum`);
         return;
       }
 

@@ -106,6 +106,10 @@ export class BinanceService implements IBinanceService {
     const precision = await this.getQuantityPrecision(symbol);
     const quantity = parseFloat(((quoteQty * leverage) / price).toFixed(precision));
 
+    if (quantity <= 0) {
+      throw new Error(`Calculated quantity is 0 for ${symbol} (quoteQty:${quoteQty} price:${price} precision:${precision}). Increase riskPercent or balance.`);
+    }
+
     const { data } = await this.http.post('/fapi/v1/order', null, {
       params: this.signedParams({ symbol, side: 'BUY', positionSide: 'LONG', type: 'MARKET', quantity }),
     });
@@ -125,6 +129,10 @@ export class BinanceService implements IBinanceService {
     const price = await this.getCurrentPrice(symbol);
     const precision = await this.getQuantityPrecision(symbol);
     const quantity = parseFloat(((quoteQty * leverage) / price).toFixed(precision));
+
+    if (quantity <= 0) {
+      throw new Error(`Calculated quantity is 0 for ${symbol} (quoteQty:${quoteQty} price:${price} precision:${precision}). Increase riskPercent or balance.`);
+    }
 
     const { data } = await this.http.post('/fapi/v1/order', null, {
       params: this.signedParams({ symbol, side: 'SELL', positionSide: 'SHORT', type: 'MARKET', quantity }),
