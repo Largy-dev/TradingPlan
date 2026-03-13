@@ -157,33 +157,32 @@ export class StrategyService implements IStrategyService {
     }
 
     // ── Entry signals ─────────────────────────────────────────────────
+    // Required (hard gates): trend alignment on 3 timeframes + MACD momentum.
+    // Optional (confidence bonuses): stoch pullback, volume, ATR quality.
+    // This way the bot trades in both trending and ranging markets,
+    // while still scoring entries higher when a clean pullback is present.
     const longOk =
-      macroBull4h            &&   // 1+2. 4h price > EMA50 AND RSI > 52
-      trend1hUp              &&   // 3.   1h medium-term uptrend
-      rsi1hLongZone          &&   // 4.   1h RSI in [50, 63]
-      ema21_15m > ema50_15m  &&   // 5.   15m short-term trend intact
-      pullbackLong           &&   // 6.   stoch K crossed above D from ≤20
-      macdLong               &&   // 7.   MACD histogram ≥ 0
-      volumeOk;                   // 8.   ≥100% avg volume (ATR guard above)
+      macroBull4h            &&   // 4h: price > EMA21 + RSI > 50
+      trend1hUp              &&   // 1h: EMA21 > EMA50 (uptrend)
+      rsi1hLongZone          &&   // 1h: RSI not at extreme
+      ema21_15m > ema50_15m  &&   // 15m: short-term trend intact
+      macdLong;                   // 15m: MACD histogram ≥ 0 (momentum positive)
 
     const shortOk =
-      macroBear4h            &&   // 1+2. 4h price < EMA50 AND RSI < 48
-      trend1hDn              &&   // 3.   1h medium-term downtrend
-      rsi1hShortZone         &&   // 4.   1h RSI in [37, 50]
-      ema21_15m < ema50_15m  &&   // 5.   15m short-term trend intact
-      pullbackShort          &&   // 6.   stoch K crossed below D from ≥80
-      macdShort              &&   // 7.   MACD histogram ≤ 0
-      volumeOk;                   // 8.   ≥100% avg volume
+      macroBear4h            &&   // 4h: price < EMA21 + RSI < 50
+      trend1hDn              &&   // 1h: EMA21 < EMA50 (downtrend)
+      rsi1hShortZone         &&   // 1h: RSI not at extreme
+      ema21_15m < ema50_15m  &&   // 15m: short-term trend intact
+      macdShort;                  // 15m: MACD histogram ≤ 0 (momentum negative)
 
     let action: ISignal['action'] = 'HOLD';
     let confidence = 0;
 
     if (longOk) {
       action = 'LONG';
-      confidence = this.computeConfidence(recentKValues, stochK, atrPct, avgVolume, lastVolume, rsi14_1h, rsi14_4h, macdHistNow, macdHistPrev);
+      confidence = this.computeConfidence(recentKValues, stochK, atrPct, avgVolume, lastVolume, rsi14_1h, rsi14_4h, macdHistNow, macdHistPrev, pullbackLong);
     } else if (shortOk) {
       action = 'SHORT';
-      // Mirror all values so confidence logic is symmetric with LONG
       confidence = this.computeConfidence(
         recentKValues.map((k) => 100 - k),
         100 - stochK,
@@ -194,11 +193,12 @@ export class StrategyService implements IStrategyService {
         100 - rsi14_4h,
         -macdHistNow,
         -macdHistPrev,
+        pullbackShort,
       );
     }
 
-    // Confidence gate: only act on decent setups (≥0.60)
-    if (confidence < 0.60) action = 'HOLD';
+    // Confidence gate: 0.55 — reachable without pullback, better with one
+    if (confidence < 0.55) action = 'HOLD';
 
     return {
       symbol, action, confidence,
@@ -213,44 +213,47 @@ export class StrategyService implements IStrategyService {
    * For SHORT: pass inverted K/RSI/macdHist so the same logic applies symmetrically.
    */
   private computeConfidence(
-    recentK: number[],    // stoch K from last 3 bars before current (inverted for SHORT)
-    stochK: number,       // current K (inverted for SHORT)
+    recentK: number[],      // stoch K from last 5 bars (inverted for SHORT)
+    stochK: number,         // current K (inverted for SHORT)
     atrPct: number,
     avgVolume: number,
     lastVolume: number,
-    rsi1h: number,        // 1h RSI (inverted for SHORT)
-    rsi4h: number,        // 4h RSI (inverted for SHORT)
-    macdHist: number,     // current histogram (inverted for SHORT)
-    macdHistPrev: number, // previous histogram (inverted for SHORT)
+    rsi1h: number,          // 1h RSI (inverted for SHORT)
+    rsi4h: number,          // 4h RSI (inverted for SHORT)
+    macdHist: number,       // current histogram (inverted for SHORT)
+    macdHistPrev: number,   // previous histogram (inverted for SHORT)
+    pullbackDetected: boolean,
   ): number {
-    let score = 0.5;
+    // Base is lower (0.40) since pullback + volume are no longer required gates.
+    // Minimum to fire is 0.55, reachable with decent ATR + strong macro.
+    // A clean pullback entry pushes score to 0.75-0.90.
+    let score = 0.40;
 
-    // Depth of pullback: deeper dip = higher quality entry (extremes now ≤20/≥80)
-    if (recentK.some((k) => k <= 10)) score += 0.15;       // extremely deep dip
-    else if (recentK.some((k) => k <= 15)) score += 0.10;  // deep dip
-    else score += 0.05;                                      // standard dip at the ≤20 boundary
+    // Pullback quality — biggest bonus, rewards the ideal setup
+    if (pullbackDetected) {
+      if (recentK.some((k) => k <= 15)) score += 0.25;       // deep dip then recovery
+      else if (recentK.some((k) => k <= 30)) score += 0.20;  // clean pullback
+      else score += 0.15;                                      // shallow pullback
+    }
 
-    // K still recovering from low = not chasing the move
-    if (stochK <= 30) score += 0.10;
-
-    // 1h RSI in the ideal momentum zone
-    if (rsi1h >= 52 && rsi1h <= 60) score += 0.10;
+    // MACD zero-cross = fresh momentum kick (best timing)
+    if (macdHist > 0 && macdHistPrev <= 0) score += 0.10;
+    else if (macdHist > 0) score += 0.05;
 
     // 4h momentum strength
     if (rsi4h >= 62) score += 0.10;
-    else if (rsi4h >= 56) score += 0.05;
+    else if (rsi4h >= 55) score += 0.05;
 
-    // Volume conviction
-    if (lastVolume >= avgVolume * 1.5) score += 0.10;
-    else if (lastVolume >= avgVolume * 1.2) score += 0.05;
+    // 1h RSI in the sweet spot
+    if (rsi1h >= 50 && rsi1h <= 62) score += 0.10;
 
-    // ATR = real volatility (price has room to run and cover fees)
+    // ATR = real volatility
     if (atrPct >= 0.30) score += 0.10;
-    else if (atrPct >= 0.20) score += 0.05;
+    else if (atrPct >= 0.15) score += 0.05;
 
-    // MACD histogram just crossed zero upward = fresh momentum surge
-    if (macdHist > 0 && macdHistPrev <= 0) score += 0.10;  // zero-cross (strongest)
-    else if (macdHist > 0) score += 0.05;                   // already positive
+    // Volume conviction (bonus, no longer required)
+    if (lastVolume >= avgVolume * 1.3) score += 0.10;
+    else if (lastVolume >= avgVolume * 0.8) score += 0.05;
 
     return Math.min(Math.round(score * 100) / 100, 1.0);
   }
