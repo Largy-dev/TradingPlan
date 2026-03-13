@@ -21,9 +21,9 @@ model BotState {
   isRunning       Boolean  @default(false)
   strategy        String   @default("PULLBACK_SCALPING")
   riskPercent     Float    @default(2.0)
-  takeProfitPct   Float    @default(0.8)
-  stopLossPct     Float    @default(0.4)
-  trailingStopPct Float    @default(0.2)
+  takeProfitPct   Float    @default(1.5)
+  stopLossPct     Float    @default(0.5)
+  trailingStopPct Float    @default(0.3)
   maxOpenTrades   Int      @default(3)
   leverage        Int      @default(10)
   updatedAt       DateTime @updatedAt

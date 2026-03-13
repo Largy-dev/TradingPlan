@@ -50,8 +50,8 @@ export class BotService {
   // TP/SL helpers
   private trailingHighs = new Map<number, number>();
   private trailingLows = new Map<number, number>();
-  // After closing a position, wait 1 full 15m candle before re-entering same symbol+side
-  private readonly COOLDOWN_MS = 15 * 60 * 1_000;
+  // After closing a position, wait 5 minutes before re-entering same symbol+side
+  private readonly COOLDOWN_MS = 5 * 60 * 1_000;
   private recentlyClosed = new Map<string, number>(); // `${symbol}_${positionSide}` → ms
   private scanInProgress = false; // prevent concurrent entry scans overloading the API
 
@@ -92,15 +92,26 @@ export class BotService {
         where: { id: state.id },
         data: {
           strategy: 'PULLBACK_SCALPING',
-          takeProfitPct: 0.8,
-          stopLossPct: 0.4,
-          trailingStopPct: 0.2,
+          takeProfitPct: 1.5,
+          stopLossPct: 0.5,
+          trailingStopPct: 0.3,
           riskPercent: 2.0,
           leverage: 10,
           maxOpenTrades: 3,
         },
       });
-      console.log('[BotService] Migrated risk settings to PULLBACK_SCALPING defaults (TP 0.8% / SL 0.4% / 10x / 2% risk)');
+      console.log('[BotService] Migrated risk settings to PULLBACK_SCALPING defaults (TP 1.5% / SL 0.5% / 10x / 2% risk)');
+    }
+
+    // Auto-upgrade R:R: if using old conservative TP/SL, upgrade to the new 3:1 ratio.
+    // Old: TP 0.8% / SL 0.4% → effective 1.4:1 after fees (almost breakeven).
+    // New: TP 1.5% / SL 0.5% → effective 2.3:1 after fees (profitable at 50% win rate).
+    if (state.takeProfitPct < 1.5 || state.stopLossPct < 0.5) {
+      state = await this.prisma.botState.update({
+        where: { id: state.id },
+        data: { takeProfitPct: 1.5, stopLossPct: 0.5, trailingStopPct: 0.3 },
+      });
+      console.log('[BotService] Auto-upgraded to 3:1 R:R (TP 1.5% / SL 0.5% / trailing 0.3%)');
     }
 
     await this.prisma.botState.update({ where: { id: state.id }, data: { isRunning: true } });
