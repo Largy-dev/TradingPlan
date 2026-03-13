@@ -80,8 +80,8 @@ export class StrategyService implements IStrategyService {
     const rsi14_4h = RSI.calculate({ period: 14, values: closes4h }).at(-1) ?? 50;
     const ema50_4h = EMA.calculate({ period: 50, values: closes4h }).at(-1)!;
     const price4h  = closes4h.at(-1)!;
-    const macroBull4h = rsi14_4h > 52 && price4h > ema50_4h; // price above macro MA + momentum
-    const macroBear4h = rsi14_4h < 48 && price4h < ema50_4h;
+    const macroBull4h = rsi14_4h > 50 && price4h > ema50_4h; // loosened RSI: >50 (was >52)
+    const macroBear4h = rsi14_4h < 50 && price4h < ema50_4h;
 
     // ── 1h trend + health (conditions 3 & 4) ──────────────────────────
     const ema21_1h       = EMA.calculate({ period: 21, values: closes1h }).at(-1)!;
@@ -89,8 +89,8 @@ export class StrategyService implements IStrategyService {
     const rsi14_1h       = RSI.calculate({ period: 14, values: closes1h }).at(-1) ?? 50;
     const trend1hUp      = ema21_1h > ema50_1h;
     const trend1hDn      = ema21_1h < ema50_1h;
-    const rsi1hLongZone  = rsi14_1h >= 50 && rsi14_1h <= 63; // tightened from [45,65]
-    const rsi1hShortZone = rsi14_1h >= 37 && rsi14_1h <= 50; // tightened from [35,55]
+    const rsi1hLongZone  = rsi14_1h >= 45 && rsi14_1h <= 67; // loosened from [50,63] — still filters extremes
+    const rsi1hShortZone = rsi14_1h >= 33 && rsi14_1h <= 55; // loosened from [37,50]
     const macroTrendBullish = trend1hUp; // kept for ISignal compatibility
 
     // ── 15m short-term trend (condition 5) ────────────────────────────
@@ -112,14 +112,15 @@ export class StrategyService implements IStrategyService {
     const stochK = s0.k ?? 50;
     const stochD = s0.d ?? 50;
 
-    // Last 3 bars BEFORE current — detect recent extreme
-    const recentKValues  = stochValues.slice(-4, -1).map((s) => s.k ?? 50);
-    const wasOversold    = recentKValues.some((k) => k <= 20); // ≤20 (was ≤30)
-    const wasOverbought  = recentKValues.some((k) => k >= 80); // ≥80 (was ≥70)
+    // Last 5 bars BEFORE current — detect recent extreme (widened from 3 to 5)
+    const recentKValues  = stochValues.slice(-6, -1).map((s) => s.k ?? 50);
+    const wasOversold    = recentKValues.some((k) => k <= 25); // ≤25 (was ≤20, v1 was ≤30)
+    const wasOverbought  = recentKValues.some((k) => k >= 75); // ≥75 (was ≥80, v1 was ≥70)
 
-    // Crossover: K was below D one bar ago, now above D (bullish) or vice versa
-    const crossedUp = wasOversold   && (s1.k ?? 50) < (s1.d ?? 50) && stochK > stochD;
-    const crossedDn = wasOverbought && (s1.k ?? 50) > (s1.d ?? 50) && stochK < stochD;
+    // Recovery: K is now above D (coming from oversold) — no longer requires exact crossover bar.
+    // The crossover must have happened within the last 5 bars, so K > D confirms the recovery.
+    const crossedUp = wasOversold   && stochK > stochD;
+    const crossedDn = wasOverbought && stochK < stochD;
     const pullbackLong     = crossedUp;
     const pullbackShort    = crossedDn;
     const pullbackDetected = pullbackLong || pullbackShort;
@@ -148,8 +149,8 @@ export class StrategyService implements IStrategyService {
     const lastVolume = volumes15m.at(-1)!;
     const volumeOk   = lastVolume >= avgVolume * 1.0; // raised from 0.80 — at least average volume
 
-    // Skip low-volatility markets (raised from 0.10% to 0.15%)
-    if (atrPct < 0.15) {
+    // Skip low-volatility markets (0.10% — fees need room to breathe)
+    if (atrPct < 0.10) {
       return { ...empty, ema8, ema21: ema21_15m, rsi7, stochK, stochD, atrPct, volumeOk, macroTrendBullish, rsi14_1h, rsi14_4h, pullbackDetected };
     }
 
@@ -194,8 +195,8 @@ export class StrategyService implements IStrategyService {
       );
     }
 
-    // Confidence gate: only act on high-quality setups (≥0.68)
-    if (confidence < 0.68) action = 'HOLD';
+    // Confidence gate: only act on decent setups (≥0.60)
+    if (confidence < 0.60) action = 'HOLD';
 
     return {
       symbol, action, confidence,
