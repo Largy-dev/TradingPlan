@@ -13,8 +13,20 @@ import { typeDefs } from './schema/typeDefs';
 import { buildResolvers } from './resolvers';
 import { BotService } from './services/BotService';
 
+const DEFAULT_PAIRS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'];
+
+async function seedDefaultPairs(prisma: PrismaClient): Promise<void> {
+  const count = await prisma.tradingPair.count();
+  if (count > 0) return; // already seeded
+  for (const symbol of DEFAULT_PAIRS) {
+    await prisma.tradingPair.create({ data: { symbol, isActive: true } });
+  }
+  console.log(`[Server] Seeded ${DEFAULT_PAIRS.length} default trading pairs`);
+}
+
 async function main() {
   const prisma = new PrismaClient();
+  await seedDefaultPairs(prisma);
   const botService = new BotService(prisma);
   const resolvers = buildResolvers(prisma, botService);
 
