@@ -109,12 +109,12 @@ export class BotService {
     // Auto-upgrade R:R: if using old conservative TP/SL, upgrade to the new 3:1 ratio.
     // Old: TP 0.8% / SL 0.4% → effective 1.4:1 after fees (almost breakeven).
     // New: TP 1.5% / SL 0.5% → effective 2.3:1 after fees (profitable at 50% win rate).
-    if (state.takeProfitPct < 1.5 || state.stopLossPct < 0.5 || state.maxOpenTrades < 5) {
+    if (state.takeProfitPct < 1.5 || state.stopLossPct < 0.5 || state.maxOpenTrades < 10) {
       state = await this.prisma.botState.update({
         where: { id: state.id },
-        data: { takeProfitPct: 1.5, stopLossPct: 0.5, trailingStopPct: 0.3, maxOpenTrades: 5 },
+        data: { takeProfitPct: 1.5, stopLossPct: 0.5, trailingStopPct: 0.3, maxOpenTrades: 10 },
       });
-      console.log('[BotService] Auto-upgraded to 3:1 R:R (TP 1.5% / SL 0.5% / trailing 0.3% / maxTrades 5)');
+      console.log('[BotService] Auto-upgraded to 3:1 R:R (TP 1.5% / SL 0.5% / trailing 0.3% / maxTrades 10)');
     }
 
     await this.prisma.botState.update({ where: { id: state.id }, data: { isRunning: true } });

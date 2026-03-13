@@ -24,7 +24,7 @@ model BotState {
   takeProfitPct   Float    @default(1.5)
   stopLossPct     Float    @default(0.5)
   trailingStopPct Float    @default(0.3)
-  maxOpenTrades   Int      @default(5)
+  maxOpenTrades   Int      @default(10)
   leverage        Int      @default(10)
   updatedAt       DateTime @updatedAt
 }
