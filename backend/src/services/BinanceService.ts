@@ -204,7 +204,12 @@ export class BinanceService implements IBinanceService {
     const { data } = await this.http.get('/fapi/v1/ticker/24hr');
     const EXCLUDE = ['USDC', 'BUSD', 'DAI', 'TUSD', 'USDP', 'FDUSD', 'UP', 'DOWN', 'BULL', 'BEAR', 'DEFI'];
     return (data as any[])
-      .filter((t) => t.symbol.endsWith('USDT') && !EXCLUDE.some((kw) => t.symbol.includes(kw)))
+      .filter((t) =>
+        t.symbol.endsWith('USDT') &&
+        !EXCLUDE.some((kw) => t.symbol.includes(kw)) &&
+        parseFloat(t.quoteVolume) > 5_000_000 &&        // min $5M daily volume — kills ghost testnet pairs
+        Math.abs(parseFloat(t.priceChangePercent)) > 0.1 // min 0.1% move — kills frozen-price pairs
+      )
       .map((t) => ({
         symbol: t.symbol as string,
         score: parseFloat(t.quoteVolume) * Math.abs(parseFloat(t.priceChangePercent)),

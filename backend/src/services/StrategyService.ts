@@ -91,8 +91,8 @@ export class StrategyService implements IStrategyService {
     const rsi14_1h       = RSI.calculate({ period: 14, values: closes1h }).at(-1) ?? 50;
     const trend1hUp      = ema21_1h > ema50_1h;
     const trend1hDn      = ema21_1h < ema50_1h;
-    const rsi1hLongZone  = rsi14_1h >= 45 && rsi14_1h <= 67; // loosened from [50,63] — still filters extremes
-    const rsi1hShortZone = rsi14_1h >= 33 && rsi14_1h <= 55; // loosened from [37,50]
+    const rsi1hLongZone  = rsi14_1h >= 42 && rsi14_1h <= 72; // healthy uptrend zone
+    const rsi1hShortZone = rsi14_1h >= 28 && rsi14_1h <= 58; // healthy downtrend zone (was ≥33, caught SXPUSDT)
     const macroTrendBullish = trend1hUp; // kept for ISignal compatibility
 
     // ── 15m short-term trend (condition 5) ────────────────────────────
@@ -114,10 +114,10 @@ export class StrategyService implements IStrategyService {
     const stochK = s0.k ?? 50;
     const stochD = s0.d ?? 50;
 
-    // Last 5 bars BEFORE current — detect recent extreme (widened from 3 to 5)
+    // Last 5 bars BEFORE current — detect recent extreme
     const recentKValues  = stochValues.slice(-6, -1).map((s) => s.k ?? 50);
-    const wasOversold    = recentKValues.some((k) => k <= 25); // ≤25 (was ≤20, v1 was ≤30)
-    const wasOverbought  = recentKValues.some((k) => k >= 75); // ≥75 (was ≥80, v1 was ≥70)
+    const wasOversold    = recentKValues.some((k) => k <= 40); // ≤40 — allows shallow pullbacks in uptrends
+    const wasOverbought  = recentKValues.some((k) => k >= 60); // ≥60 — allows shallow bounces in downtrends
 
     // Recovery: K is now above D (coming from oversold) — no longer requires exact crossover bar.
     // The crossover must have happened within the last 5 bars, so K > D confirms the recovery.
@@ -149,7 +149,7 @@ export class StrategyService implements IStrategyService {
     const atrPct = (atr / currentPrice) * 100;
     const avgVolume  = volumes15m.slice(-21, -1).reduce((a, b) => a + b, 0) / 20;
     const lastVolume = volumes15m.at(-1)!;
-    const volumeOk   = lastVolume >= avgVolume * 1.0; // raised from 0.80 — at least average volume
+    const volumeOk   = lastVolume >= avgVolume * 0.7; // 70% of avg — not below floor, not overly strict
 
     // Skip low-volatility markets (0.10% — fees need room to breathe)
     if (atrPct < 0.10) {
