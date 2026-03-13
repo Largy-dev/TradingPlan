@@ -54,6 +54,9 @@ export class BotService {
   private readonly COOLDOWN_MS = 5 * 60 * 1_000;
   private recentlyClosed = new Map<string, number>(); // `${symbol}_${positionSide}` → ms
   private scanInProgress = false; // prevent concurrent entry scans overloading the API
+  private lastPairSync = 0;
+  private readonly PAIR_SYNC_INTERVAL_MS = 30 * 60 * 1_000; // sync top pairs every 30 min
+  private readonly TOP_PAIRS_COUNT = 15; // how many top pairs to keep active
 
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -106,12 +109,12 @@ export class BotService {
     // Auto-upgrade R:R: if using old conservative TP/SL, upgrade to the new 3:1 ratio.
     // Old: TP 0.8% / SL 0.4% → effective 1.4:1 after fees (almost breakeven).
     // New: TP 1.5% / SL 0.5% → effective 2.3:1 after fees (profitable at 50% win rate).
-    if (state.takeProfitPct < 1.5 || state.stopLossPct < 0.5) {
+    if (state.takeProfitPct < 1.5 || state.stopLossPct < 0.5 || state.maxOpenTrades < 5) {
       state = await this.prisma.botState.update({
         where: { id: state.id },
-        data: { takeProfitPct: 1.5, stopLossPct: 0.5, trailingStopPct: 0.3 },
+        data: { takeProfitPct: 1.5, stopLossPct: 0.5, trailingStopPct: 0.3, maxOpenTrades: 5 },
       });
-      console.log('[BotService] Auto-upgraded to 3:1 R:R (TP 1.5% / SL 0.5% / trailing 0.3%)');
+      console.log('[BotService] Auto-upgraded to 3:1 R:R (TP 1.5% / SL 0.5% / trailing 0.3% / maxTrades 5)');
     }
 
     await this.prisma.botState.update({ where: { id: state.id }, data: { isRunning: true } });
@@ -120,6 +123,7 @@ export class BotService {
     this.botStateCache = this.extractStateCache(state);
 
     await this.rebuildOpenTradesCache();
+    await this.autoSyncPairs(); // immediate first sync on start
     await this.resyncSubscriptions();
 
     // Entry signals: scan all active pairs every minute
@@ -265,11 +269,51 @@ export class BotService {
       if (!this.isRunning) return;
       const state = await this.prisma.botState.findFirst();
       if (state) this.botStateCache = this.extractStateCache(state);
+      await this.autoSyncPairs();
       await this.reconcilePositions();
       await this.resyncSubscriptions();
       await this.publishStatus();
     } catch (err) {
       console.error('[BotService] Maintenance error:', err);
+    }
+  }
+
+  /**
+   * Fetch the top N most liquid+volatile USDT pairs from Binance and sync them
+   * into the TradingPair table. Throttled to once every 30 minutes.
+   * - Pairs that enter the top N → set isActive = true
+   * - Pairs that fall out of top N → set isActive = false (unless they have an open trade)
+   */
+  private async autoSyncPairs(): Promise<void> {
+    if (!this.binanceService) return;
+    const now = Date.now();
+    if (now - this.lastPairSync < this.PAIR_SYNC_INTERVAL_MS) return;
+    this.lastPairSync = now;
+
+    try {
+      const topSymbols = await this.binanceService.getTopPairs(this.TOP_PAIRS_COUNT);
+      if (topSymbols.length === 0) return;
+
+      // Upsert every top pair as active
+      for (const symbol of topSymbols) {
+        await this.prisma.tradingPair.upsert({
+          where: { symbol },
+          update: { isActive: true },
+          create: { symbol, isActive: true },
+        });
+      }
+
+      // Deactivate pairs that dropped out of the top N, but only if no open trade on them
+      const openSymbols = new Set(Array.from(this.openTradesCache.values()).map((t) => t.symbol));
+      const keepActive = new Set([...topSymbols, ...openSymbols]);
+      await this.prisma.tradingPair.updateMany({
+        where: { symbol: { notIn: Array.from(keepActive) } },
+        data: { isActive: false },
+      });
+
+      console.log(`[BotService] Auto-synced top ${topSymbols.length} pairs: ${topSymbols.join(', ')}`);
+    } catch (err) {
+      console.error('[BotService] autoSyncPairs error:', err);
     }
   }
 

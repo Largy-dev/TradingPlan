@@ -38,4 +38,5 @@ export interface IBinanceService {
   closeShort(symbol: string, quantity: number): Promise<IOrderResult>;
   getCurrentPrice(symbol: string): Promise<number>;
   getOpenPositions(): Promise<IFuturesPosition[]>;
+  getTopPairs(limit: number): Promise<string[]>;
 }

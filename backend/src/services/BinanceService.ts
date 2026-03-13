@@ -195,6 +195,25 @@ export class BinanceService implements IBinanceService {
       }));
   }
 
+  /**
+   * Returns the top `limit` USDT perpetual futures symbols ranked by
+   * quoteVolume × |priceChangePercent| — pairs that are both liquid AND moving.
+   * Stablecoins and leveraged tokens are excluded.
+   */
+  async getTopPairs(limit: number): Promise<string[]> {
+    const { data } = await this.http.get('/fapi/v1/ticker/24hr');
+    const EXCLUDE = ['USDC', 'BUSD', 'DAI', 'TUSD', 'USDP', 'FDUSD', 'UP', 'DOWN', 'BULL', 'BEAR', 'DEFI'];
+    return (data as any[])
+      .filter((t) => t.symbol.endsWith('USDT') && !EXCLUDE.some((kw) => t.symbol.includes(kw)))
+      .map((t) => ({
+        symbol: t.symbol as string,
+        score: parseFloat(t.quoteVolume) * Math.abs(parseFloat(t.priceChangePercent)),
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map((t) => t.symbol);
+  }
+
   private async getQuantityPrecision(symbol: string): Promise<number> {
     try {
       const { data } = await this.http.get('/fapi/v1/exchangeInfo');
