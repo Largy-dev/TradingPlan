@@ -151,8 +151,13 @@ export class StrategyService implements IStrategyService {
     const lastVolume = volumes15m.at(-1)!;
     const volumeOk   = lastVolume >= avgVolume * 0.7; // 70% of avg — not below floor, not overly strict
 
-    // Skip low-volatility markets (0.10% — fees need room to breathe)
-    if (atrPct < 0.10) {
+    // ATR corridor: must be between 0.10% and 0.75%
+    // Floor 0.10%: market needs enough volatility to profit after fees.
+    // Ceiling 0.75%: if ATR > SL (0.5%), normal market noise will
+    //   constantly hit the stop before price can reach TP.
+    //   Observed on PONKEUSDT (ATR ≈ 1.14%): SL triggered in 1-3 seconds
+    //   on every entry, causing repeated losses.
+    if (atrPct < 0.10 || atrPct > 0.75) {
       return { ...empty, ema8, ema21: ema21_15m, rsi7, stochK, stochD, atrPct, volumeOk, macroTrendBullish, rsi14_1h, rsi14_4h, pullbackDetected };
     }
 
